@@ -1,21 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-
-type Props = {
-  item: string;
-  location: string;
-};
+import { useEffect, useState } from "react";
 
 export default function AlertClient({
-  item: rawItem,
-  location: rawLocation,
-}: Props) {
-  const item = useMemo(() => (rawItem || "").trim(), [rawItem]);
-  const location = useMemo(() => (rawLocation || "").trim(), [rawLocation]);
-
-  // "qty" here is really the status level staff selects (low/out)
-  // Your sheet column is named qty, so we keep sending qty for compatibility.
+  item,
+  location,
+}: {
+  item: string;
+  location: string;
+}) {
   const [qty, setQty] = useState<"low" | "out">("low");
   const [note, setNote] = useState("");
 
@@ -37,7 +30,7 @@ export default function AlertClient({
     return () => clearInterval(t);
   }, [secondsLeft]);
 
-  // Reset state if item/location changes (new scan)
+  // Reset state if scan changes (new item/location)
   useEffect(() => {
     setSubmitted(false);
     setAlertId(null);
@@ -49,9 +42,6 @@ export default function AlertClient({
   }, [item, location]);
 
   async function handleSubmit() {
-    // guard against double taps / laggy devices
-    if (submitted) return;
-
     setError(null);
     setMessage(null);
 
@@ -84,7 +74,6 @@ export default function AlertClient({
       setSubmitted(true);
       setAlertId(data.alertId);
       setSecondsLeft(UNDO_SECONDS);
-
       setMessage("Alert submitted ✅ (you can undo for a moment)");
     } catch (e: any) {
       console.error(e);
@@ -124,13 +113,14 @@ export default function AlertClient({
     }
   }
 
-  // Bypass waiting for the remaining undo window
-  function finalizeNow() {
+  // “Submit Now” = lock the submission immediately
+  function handleSubmitNow() {
     setSecondsLeft(0);
-    setMessage("Submitted ✓");
+    setMessage("Submitted ✅");
   }
 
-  const showUndoWindow = submitted && secondsLeft > 0 && !!alertId;
+  const showCancel = submitted && secondsLeft > 0 && !!alertId;
+  const showSubmitNow = submitted && secondsLeft > 0;
   const showSubmittedLocked = submitted && secondsLeft <= 0;
 
   return (
@@ -234,81 +224,73 @@ export default function AlertClient({
         </button>
       )}
 
-      {/* Undo window: Cancel + Finalize */}
-      {showUndoWindow && (
-        <div style={{ display: "grid", gap: 10 }}>
-          <button
-            type="button"
-            onClick={handleCancel}
-            style={{
-              width: "100%",
-              padding: "16px 18px",
-              borderRadius: 12,
-              border: "1px solid #b91c1c",
-              background: "#b91c1c",
-              color: "#fff",
-              fontWeight: 800,
-              fontSize: 16,
-              cursor: "pointer",
-            }}
-          >
-            Cancel ({secondsLeft}s)
-          </button>
-
-          <button
-            type="button"
-            onClick={finalizeNow}
-            style={{
-              width: "100%",
-              padding: "16px 18px",
-              borderRadius: 12,
-              border: "1px solid #111827",
-              background: "#111827",
-              color: "#fff",
-              fontWeight: 800,
-              fontSize: 16,
-              cursor: "pointer",
-              opacity: 0.9,
-            }}
-          >
-            Submit Now
-          </button>
-
-          <div style={{ fontSize: 13, color: "#6b7280" }}>
-            Undo available for {secondsLeft}s.
-          </div>
-        </div>
+      {/* Cancel */}
+      {showCancel && (
+        <button
+          type="button"
+          onClick={handleCancel}
+          style={{
+            width: "100%",
+            padding: "16px 18px",
+            borderRadius: 12,
+            border: "1px solid #b91c1c",
+            background: "#b91c1c",
+            color: "#fff",
+            fontWeight: 800,
+            fontSize: 16,
+            cursor: "pointer",
+            marginTop: 0,
+          }}
+        >
+          Cancel ({secondsLeft}s)
+        </button>
       )}
 
-      {/* Locked submitted */}
+      {/* Submit Now */}
+      {showSubmitNow && (
+        <button
+          type="button"
+          onClick={handleSubmitNow}
+          style={{
+            width: "100%",
+            padding: "12px 18px",
+            borderRadius: 12,
+            border: "1px solid #111827",
+            background: "#fff",
+            color: "#111827",
+            fontWeight: 800,
+            fontSize: 14,
+            cursor: "pointer",
+            marginTop: 10,
+          }}
+        >
+          Submit Now
+        </button>
+      )}
+
+      {/* Locked */}
       {showSubmittedLocked && (
-        <div>
-          <button
-            type="button"
-            disabled
-            style={{
-              width: "100%",
-              padding: "16px 18px",
-              borderRadius: 12,
-              border: "1px solid #111827",
-              background: "#111827",
-              color: "#fff",
-              fontWeight: 800,
-              fontSize: 16,
-              opacity: 0.75,
-              cursor: "not-allowed",
-            }}
-          >
-            Submitted ✓
-          </button>
-
-          <div style={{ marginTop: 8, fontSize: 13, color: "#6b7280" }}>
-            Undo window expired.
-          </div>
-        </div>
+        <button
+          type="button"
+          disabled
+          style={{
+            width: "100%",
+            padding: "16px 18px",
+            borderRadius: 12,
+            border: "1px solid #111827",
+            background: "#111827",
+            color: "#fff",
+            fontWeight: 800,
+            fontSize: 16,
+            opacity: 0.75,
+            cursor: "not-allowed",
+          }}
+        >
+          Submitted ✓
+        </button>
       )}
 
-      {/* Status messages */}
+      {/* Messages */}
       {message && (
         <div
           style={{

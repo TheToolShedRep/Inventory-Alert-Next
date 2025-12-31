@@ -1,19 +1,18 @@
+// app/alert/page.tsx
 import AlertClient from "./AlertClient";
 
-export const dynamic = "force-dynamic"; // make sure this is not prerendered
+export const dynamic = "force-dynamic";
 
 type PageProps = {
-  searchParams?: Record<string, string | string[] | undefined>;
+  searchParams?: {
+    item?: string;
+    location?: string;
+  };
 };
 
 export default function AlertPage({ searchParams }: PageProps) {
-  const itemRaw = searchParams?.item;
-  const locationRaw = searchParams?.location;
-
-  const item = Array.isArray(itemRaw) ? itemRaw[0] : itemRaw || "";
-  const location = Array.isArray(locationRaw)
-    ? locationRaw[0]
-    : locationRaw || "";
+  const item = (searchParams?.item || "").trim();
+  const location = (searchParams?.location || "").trim();
 
   return <AlertClient item={item} location={location} />;
 }
