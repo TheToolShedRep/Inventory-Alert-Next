@@ -1,14 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 export default function AlertClient({
-  item,
-  location,
+  item: itemProp = "",
+  location: locationProp = "",
 }: {
-  item: string;
-  location: string;
+  item?: string;
+  location?: string;
 }) {
+  const searchParams = useSearchParams();
+
+  // ✅ Robust: if server props are empty, fall back to client query string
+  const item = useMemo(() => {
+    const fromProps = (itemProp || "").trim();
+    if (fromProps) return fromProps;
+    return (searchParams.get("item") || "").trim();
+  }, [itemProp, searchParams]);
+
+  const location = useMemo(() => {
+    const fromProps = (locationProp || "").trim();
+    if (fromProps) return fromProps;
+    return (searchParams.get("location") || "").trim();
+  }, [locationProp, searchParams]);
+
   const [qty, setQty] = useState<"low" | "out">("low");
   const [note, setNote] = useState("");
 
