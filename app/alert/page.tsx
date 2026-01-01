@@ -1,4 +1,5 @@
 // app/alert/page.tsx
+import AppShell from "@/app/components/AppShell";
 import AlertClient from "./AlertClient";
 
 export const dynamic = "force-dynamic";
@@ -15,5 +16,9 @@ export default function AlertPage({ searchParams }: PageProps) {
   const item = (searchParams?.item || "").trim();
   const location = (searchParams?.location || "").trim();
 
-  return <AlertClient item={item} location={location} />;
+  return (
+    <AppShell>
+      <AlertClient item={item} location={location} />
+    </AppShell>
+  );
 }
