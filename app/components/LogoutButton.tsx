@@ -4,7 +4,7 @@ import { SignOutButton } from "@clerk/nextjs";
 
 export default function LogoutButton() {
   return (
-    <SignOutButton redirectUrl="/">
+    <SignOutButton redirectUrl="/sign-in">
       <button
         style={{
           padding: "8px 12px",
