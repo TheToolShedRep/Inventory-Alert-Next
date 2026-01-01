@@ -1,41 +1,34 @@
 // middleware.ts
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
-/**
- * PUBLIC ROUTES
- * These must NOT be protected, or Clerk will bounce users away
- * from sign-in/sign-up and you’ll get redirect loops.
- */
 const isPublicRoute = createRouteMatcher([
-  "/", // optional landing page
+  "/", // landing page
   "/alert(.*)", // QR alert pages
-  "/sign-in(.*)", // Clerk sign-in
-  "/sign-up(.*)", // Clerk sign-up
+  "/sign-in(.*)", // auth pages must be public
+  "/sign-up(.*)",
 ]);
 
-/**
- * PROTECTED ROUTES
- * Managers only
- */
 const isProtectedRoute = createRouteMatcher([
-  "/checklist(.*)",
   "/manager(.*)",
+  "/checklist(.*)",
   "/manager.csv(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
-  // ✅ Allow public routes through untouched
+  // ✅ Public routes pass through
   if (isPublicRoute(req)) return;
 
-  // ✅ Protect manager-only routes
+  // ✅ Only gate the protected routes
   if (isProtectedRoute(req)) {
-    await auth.protect();
+    const a = await auth(); // your typings: auth() returns SessionAuthWithRedirect
+
+    // If not signed in, redirect to Clerk sign-in
+    if (!a.userId) {
+      return a.redirectToSignIn();
+    }
   }
 });
 
-/**
- * IMPORTANT: don't run middleware on static assets/_next
- */
 export const config = {
   matcher: ["/((?!_next|.*\\..*).*)"],
 };
