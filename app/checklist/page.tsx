@@ -1,11 +1,12 @@
 // app/checklist/page.tsx
 import Link from "next/link";
 import { getTodayChecklist } from "@/lib/sheets";
+import ChecklistClient from "./ChecklistClient";
 
 export const runtime = "nodejs";
 
 export default async function ChecklistPage() {
-  const items = await getTodayChecklist(); // returns deduped "low/out" items
+  const items = await getTodayChecklist(); // latest per item/location, includes alertId + timestamp
 
   return (
     <main style={{ maxWidth: 900, margin: "0 auto", padding: 24 }}>
@@ -21,49 +22,16 @@ export default async function ChecklistPage() {
 
       <p style={{ opacity: 0.8 }}>Low / Empty items reported today.</p>
 
-      {items.length === 0 ? (
-        <div
-          style={{ padding: 16, border: "1px solid #eee", borderRadius: 12 }}
-        >
-          No alerts yet today.
-        </div>
-      ) : (
-        <ul
-          style={{
-            listStyle: "none",
-            padding: 0,
-            marginTop: 16,
-            display: "grid",
-            gap: 10,
-          }}
-        >
-          {items.map((it) => (
-            <li
-              key={`${it.item}|${it.location}`}
-              style={{
-                padding: 14,
-                border: "1px solid #eee",
-                borderRadius: 12,
-                display: "flex",
-                justifyContent: "space-between",
-                gap: 12,
-              }}
-            >
-              <div>
-                <div style={{ fontWeight: 700 }}>{it.item}</div>
-                <div style={{ opacity: 0.75 }}>{it.location}</div>
-                {it.note ? (
-                  <div style={{ marginTop: 6, opacity: 0.85 }}>
-                    Note: {it.note}
-                  </div>
-                ) : null}
-              </div>
-
-              <div style={{ fontWeight: 700 }}>{it.qty.toUpperCase()}</div>
-            </li>
-          ))}
-        </ul>
-      )}
+      <ChecklistClient
+        initialItems={items.map((it) => ({
+          timestamp: it.timestamp,
+          item: it.item,
+          qty: it.qty,
+          location: it.location,
+          note: it.note,
+          alertId: it.alertId,
+        }))}
+      />
     </main>
   );
 }

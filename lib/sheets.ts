@@ -1,3 +1,4 @@
+// lib/sheets.ts
 import { google } from "googleapis";
 
 /**
@@ -8,7 +9,29 @@ const SHEET_TAB = process.env.SHEET_TAB!;
 const SERVICE_ACCOUNT_BASE64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64!;
 
 /**
+ * Business timezone
+ * IMPORTANT:
+ * Inventory operations are based on local store days,
+ * not UTC calendar days. This prevents alerts submitted
+ * late at night from disappearing due to UTC rollover.
+ */
+const BUSINESS_TIMEZONE = "America/New_York";
+
+/**
  * Row type (camelCase in code; snake_case headers in Sheets is fine)
+ *
+ * Sheet columns (A:K):
+ * A timestamp
+ * B item
+ * C qty            (we use: "low" | "empty")
+ * D location
+ * E note
+ * F ip
+ * G user_agent
+ * H status         ("active" | "canceled" | "resolved")
+ * I alert_id
+ * J canceled_at
+ * K resolved_at
  */
 export type AlertRow = {
   timestamp: string;
@@ -17,10 +40,11 @@ export type AlertRow = {
   location: string;
   note: string;
   ip: string;
-  userAgent: string; // maps to user_agent column in Sheets
-  status: "active" | "canceled";
-  alertId: string; // maps to alert_id
-  canceledAt: string; // maps to canceled_at
+  userAgent: string;
+  status: "active" | "canceled" | "resolved";
+  alertId: string;
+  canceledAt: string;
+  resolvedAt: string;
 };
 
 /**
@@ -41,7 +65,7 @@ function getSheetsClient() {
 
 /**
  * Append an alert row to the sheet
- * Matches columns A:J exactly.
+ * Matches columns A:K.
  */
 export async function logAlertToSheet({
   item,
@@ -53,7 +77,7 @@ export async function logAlertToSheet({
   alertId,
 }: {
   item: string;
-  qty: string;
+  qty: string; // "low" | "empty"
   location: string;
   note?: string;
   ip?: string;
@@ -63,7 +87,7 @@ export async function logAlertToSheet({
   const sheets = getSheetsClient();
   const timestamp = new Date().toISOString();
 
-  // Sheet columns A:J
+  // Sheet columns A:K
   const values = [
     [
       timestamp, // A timestamp
@@ -76,6 +100,7 @@ export async function logAlertToSheet({
       "active", // H status
       alertId, // I alert_id
       "", // J canceled_at
+      "", // K resolved_at
     ],
   ];
 
@@ -88,14 +113,14 @@ export async function logAlertToSheet({
 }
 
 /**
- * Read all alerts from sheet
+ * Read all alerts from sheet (A:K)
  */
 export async function getAllAlerts(): Promise<AlertRow[]> {
   const sheets = getSheetsClient();
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: `${SHEET_TAB}!A:J`, // A through J
+    range: `${SHEET_TAB}!A:K`,
   });
 
   const values = res.data.values || [];
@@ -115,11 +140,15 @@ export async function getAllAlerts(): Promise<AlertRow[]> {
       status = "active",
       alertId = "",
       canceledAt = "",
+      resolvedAt = "",
     ] = r;
 
-    // Normalize status strictly
-    const normalizedStatus: "active" | "canceled" =
-      status === "canceled" ? "canceled" : "active";
+    const normalizedStatus: "active" | "canceled" | "resolved" =
+      status === "canceled"
+        ? "canceled"
+        : status === "resolved"
+        ? "resolved"
+        : "active";
 
     return {
       timestamp,
@@ -132,82 +161,67 @@ export async function getAllAlerts(): Promise<AlertRow[]> {
       status: normalizedStatus,
       alertId,
       canceledAt,
+      resolvedAt,
     };
   });
 }
 
 /**
- * Business timezone
- * IMPORTANT:
- * Inventory operations are based on local store days,
- * not UTC calendar days. This prevents alerts submitted
- * late at night from disappearing due to UTC rollover.
- */
-
-const BUSINESS_TIMEZONE = "America/New_York";
-
-/**
- * Get today's alerts (excluding canceled)
- *
- * WHY THIS EXISTS:
- * ----------------
- * Alerts are written using UTC timestamps (ISO strings),
- * but the business operates on a LOCAL calendar day.
- *
- * Without this, alerts submitted late at night would
- * appear under "tomorrow" due to UTC rollover and
- * disappear from the Manager / Checklist views.
- *
- * This function defines "today" using the business
- * timezone and compares timestamps safely.
+ * Get today's alerts (business-local day)
+ * NOTE: We exclude canceled here so they don't clutter daily views.
+ * Resolved stays (Manager + CSV need an audit trail).
  */
 export async function getTodayAlerts(): Promise<AlertRow[]> {
   const all = await getAllAlerts();
 
-  // Get "now" in business-local time
   const localNow = new Date(
     new Date().toLocaleString("en-US", {
       timeZone: BUSINESS_TIMEZONE,
     })
   );
 
-  // Start of business day
   const start = new Date(localNow);
   start.setHours(0, 0, 0, 0);
 
-  // End of business day
   const end = new Date(localNow);
   end.setHours(23, 59, 59, 999);
 
   return all.filter((r) => {
     if (r.status === "canceled") return false;
 
-    const timestampMs = Date.parse(r.timestamp);
-    if (Number.isNaN(timestampMs)) return false;
+    const t = Date.parse(r.timestamp);
+    if (Number.isNaN(t)) return false;
 
-    return timestampMs >= start.getTime() && timestampMs <= end.getTime();
+    return t >= start.getTime() && t <= end.getTime();
   });
 }
 
 /**
- * Get deduped checklist for today (by item+location)
- * Picks the latest alert for each item+location
+ * Manager view for today:
+ * - includes active + resolved
+ * - excludes canceled
+ */
+export async function getTodayManagerAlerts(): Promise<AlertRow[]> {
+  const all = await getTodayAlerts();
+  return all.filter((r) => r.status !== "canceled");
+}
+
+/**
+ * Checklist for today:
+ * - only ACTIVE items
+ * - deduped by item+location (latest wins)
  */
 export async function getTodayChecklist(): Promise<AlertRow[]> {
   const alerts = await getTodayAlerts();
+  const activeAlerts = alerts.filter((a) => a.status === "active");
+
   const map = new Map<string, AlertRow>();
 
-  for (const alert of alerts) {
+  for (const alert of activeAlerts) {
     const key = `${alert.item}|${alert.location}`;
     const existing = map.get(key);
 
-    if (!existing) {
-      map.set(key, alert);
-      continue;
-    }
-
-    // Prefer the latest timestamp
-    if (alert.timestamp > existing.timestamp) {
+    if (!existing || alert.timestamp > existing.timestamp) {
       map.set(key, alert);
     }
   }
@@ -217,38 +231,80 @@ export async function getTodayChecklist(): Promise<AlertRow[]> {
 
 /**
  * Cancel an alert by alertId (soft cancel)
+ * Meaning: "this alert was a mistake / undo"
+ *
  * - Finds matching row by I column (alert_id)
- * - Updates H:J (status, alert_id, canceled_at)
+ * - Updates H:K (status, alert_id, canceled_at, resolved_at)
  */
 export async function cancelAlertById(alertId: string): Promise<boolean> {
   const sheets = getSheetsClient();
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: `${SHEET_TAB}!A:J`,
+    range: `${SHEET_TAB}!A:K`,
   });
 
   const values = res.data.values || [];
   if (values.length <= 1) return false;
 
-  // Start at 1 because 0 is headers
   for (let i = 1; i < values.length; i++) {
     const row = values[i];
-
-    // I column is index 8 (0-based)
-    const rowAlertId = row[8];
+    const rowAlertId = row[8]; // I column
 
     if (rowAlertId === alertId) {
-      const rowNumber = i + 1; // sheet rows are 1-based
+      const rowNumber = i + 1;
       const canceledAt = new Date().toISOString();
 
-      // Update columns H:J (status, alert_id, canceled_at)
+      // Update H:K
       await sheets.spreadsheets.values.update({
         spreadsheetId: SHEET_ID,
-        range: `${SHEET_TAB}!H${rowNumber}:J${rowNumber}`,
+        range: `${SHEET_TAB}!H${rowNumber}:K${rowNumber}`,
         valueInputOption: "RAW",
         requestBody: {
-          values: [["canceled", alertId, canceledAt]],
+          values: [["canceled", alertId, canceledAt, ""]],
+        },
+      });
+
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Resolve an alert by alertId (soft resolve)
+ * Meaning: "we restocked / replaced / bought it"
+ *
+ * - Finds matching row by I column (alert_id)
+ * - Updates H:K (status, alert_id, canceled_at, resolved_at)
+ */
+export async function resolveAlertById(alertId: string): Promise<boolean> {
+  const sheets = getSheetsClient();
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${SHEET_TAB}!A:K`,
+  });
+
+  const values = res.data.values || [];
+  if (values.length <= 1) return false;
+
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    const rowAlertId = row[8]; // I column
+
+    if (rowAlertId === alertId) {
+      const rowNumber = i + 1;
+      const resolvedAt = new Date().toISOString();
+
+      // Update H:K
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SHEET_ID,
+        range: `${SHEET_TAB}!H${rowNumber}:K${rowNumber}`,
+        valueInputOption: "RAW",
+        requestBody: {
+          values: [["resolved", alertId, "", resolvedAt]],
         },
       });
 
