@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { getTodayManagerAlerts } from "@/lib/sheets";
 import ManagerClient from "./ManagerClient";
+import LogoutButton from "@/app/components/LogoutButton";
 
 export const runtime = "nodejs";
 
@@ -14,6 +15,12 @@ export default async function ManagerPage() {
         style={{ display: "flex", justifyContent: "space-between", gap: 16 }}
       >
         <h1 style={{ margin: 0 }}>Manager Dashboard</h1>
+        <nav style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <Link href="/checklist">Checklist</Link>
+          <a href="/manager.csv">Export CSV</a>
+          <LogoutButton />
+        </nav>
+
         <nav style={{ display: "flex", gap: 12 }}>
           <Link href="/checklist">Checklist</Link>
           <a href="/manager.csv">Export CSV</a>
