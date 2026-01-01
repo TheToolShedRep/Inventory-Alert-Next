@@ -15,17 +15,21 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Inventory Alert System",
-  description: "Cafe inventory alerts + manager dashboard",
+  title: "Inventory Alert",
+  description: "Cafe inventory alert system",
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+}: Readonly<{ children: React.ReactNode }>) {
   return (
-    <ClerkProvider>
+    <ClerkProvider
+      // ✅ After logout, send them to sign-in
+      afterSignOutUrl="/sign-in"
+      // ✅ Optional: if you want Clerk to know your routes explicitly
+      signInUrl="/sign-in"
+      signUpUrl="/sign-up"
+    >
       <html lang="en">
         <body
           className={`${geistSans.variable} ${geistMono.variable} antialiased`}

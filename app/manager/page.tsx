@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { getTodayManagerAlerts } from "@/lib/sheets";
 import ManagerClient from "./ManagerClient";
-import LogoutButton from "@/app/components/LogoutButton";
+import { LogoutButton } from "../components/LogoutButton";
 
 export const runtime = "nodejs";
 
