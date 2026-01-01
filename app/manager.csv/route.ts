@@ -1,12 +1,14 @@
+// app/manager.csv/route.ts
 import { NextResponse } from "next/server";
-import { getTodayAlerts } from "@/lib/sheets";
+import { getTodayManagerAlerts } from "@/lib/sheets";
 import { csvEscape } from "@/lib/utils";
 
 export const runtime = "nodejs";
 
 export async function GET() {
   try {
-    const alerts = await getTodayAlerts(); // excludes canceled by design
+    // ✅ active + resolved (excludes canceled)
+    const alerts = await getTodayManagerAlerts();
 
     const header = [
       "timestamp",
@@ -19,6 +21,7 @@ export async function GET() {
       "status",
       "alert_id",
       "canceled_at",
+      "resolved_at", // ✅ NEW
     ];
 
     const lines = [
@@ -35,6 +38,7 @@ export async function GET() {
           csvEscape(a.status),
           csvEscape(a.alertId),
           csvEscape(a.canceledAt),
+          csvEscape(a.resolvedAt), // ✅ NEW
         ].join(",")
       ),
     ];
