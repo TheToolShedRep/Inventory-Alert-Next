@@ -1,9 +1,11 @@
-import { SignIn } from "@clerk/nextjs";
+"use client";
 
-export default function Page() {
+import { SignOutButton } from "@clerk/nextjs";
+
+export default function LogoutButton() {
   return (
-    <div style={{ display: "grid", placeItems: "center", minHeight: "100vh" }}>
-      <SignIn />
-    </div>
+    <SignOutButton redirectUrl="/sign-in">
+      <button>Logout</button>
+    </SignOutButton>
   );
 }

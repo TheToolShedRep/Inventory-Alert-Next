@@ -1,46 +1,40 @@
 // middleware.ts
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
-/**
- * Public routes must NOT be gated, or you risk redirect loops / broken auth pages.
- * - "/" is your landing page
- * - "/alert" is your QR scan workflow (must work without login)
- * - "/sign-in" and "/sign-up" must always be public
- */
 const isPublicRoute = createRouteMatcher([
-  "/",
-  "/alert(.*)",
-  "/sign-in(.*)",
+  "/", // landing page
+  "/alert(.*)", // QR alert pages
+  "/sign-in(.*)", // Clerk pages must be public
   "/sign-up(.*)",
+  "/sso-callback(.*)", // if you use /sso-callback in prod
 ]);
 
-/**
- * Only these routes require authentication.
- */
 const isProtectedRoute = createRouteMatcher([
-  "/manager(.*)",
   "/checklist(.*)",
+  "/manager(.*)",
   "/manager.csv(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
-  // ✅ Allow public routes through without any auth checks
+  // ✅ Always allow public routes
   if (isPublicRoute(req)) return;
 
-  // ✅ Only gate protected routes
-  if (isProtectedRoute(req)) {
-    const a = await auth(); // Clerk v6: auth() returns SessionAuthWithRedirect
+  // ✅ Only guard protected routes
+  if (!isProtectedRoute(req)) return;
 
-    // Not signed in → send to Clerk sign-in and come back to the original URL
-    if (!a.userId) {
-      return a.redirectToSignIn({
-        returnBackUrl: req.url,
-      });
-    }
+  // ✅ In your setup, auth() returns a Promise → must await
+  const a = await auth();
+
+  // Not signed in? Send to sign-in and come back after login
+  if (!a.userId) {
+    return a.redirectToSignIn({ returnBackUrl: req.url });
   }
+
+  // Signed in → allow
+  return;
 });
 
-// IMPORTANT: don't run middleware on static assets/_next or files with extensions
+// IMPORTANT: don't run middleware on static assets/_next
 export const config = {
   matcher: ["/((?!_next|.*\\..*).*)"],
 };
