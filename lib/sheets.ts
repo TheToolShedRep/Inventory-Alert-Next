@@ -137,31 +137,55 @@ export async function getAllAlerts(): Promise<AlertRow[]> {
 }
 
 /**
+ * Business timezone
+ * IMPORTANT:
+ * Inventory operations are based on local store days,
+ * not UTC calendar days. This prevents alerts submitted
+ * late at night from disappearing due to UTC rollover.
+ */
+
+const BUSINESS_TIMEZONE = "America/New_York";
+
+/**
  * Get today's alerts (excluding canceled)
- * Uses America/New_York local day boundaries (not UTC).
+ *
+ * WHY THIS EXISTS:
+ * ----------------
+ * Alerts are written using UTC timestamps (ISO strings),
+ * but the business operates on a LOCAL calendar day.
+ *
+ * Without this, alerts submitted late at night would
+ * appear under "tomorrow" due to UTC rollover and
+ * disappear from the Manager / Checklist views.
+ *
+ * This function defines "today" using the business
+ * timezone and compares timestamps safely.
  */
 export async function getTodayAlerts(): Promise<AlertRow[]> {
   const all = await getAllAlerts();
 
-  // "Now" in New York
-  const nyNow = new Date(
-    new Date().toLocaleString("en-US", { timeZone: "America/New_York" })
+  // Get "now" in business-local time
+  const localNow = new Date(
+    new Date().toLocaleString("en-US", {
+      timeZone: BUSINESS_TIMEZONE,
+    })
   );
 
-  // Start/end of today in New York
-  const start = new Date(nyNow);
+  // Start of business day
+  const start = new Date(localNow);
   start.setHours(0, 0, 0, 0);
 
-  const end = new Date(nyNow);
+  // End of business day
+  const end = new Date(localNow);
   end.setHours(23, 59, 59, 999);
 
   return all.filter((r) => {
     if (r.status === "canceled") return false;
 
-    const t = Date.parse(r.timestamp); // works for your ISO timestamps
-    if (Number.isNaN(t)) return false;
+    const timestampMs = Date.parse(r.timestamp);
+    if (Number.isNaN(timestampMs)) return false;
 
-    return t >= start.getTime() && t <= end.getTime();
+    return timestampMs >= start.getTime() && timestampMs <= end.getTime();
   });
 }
 
