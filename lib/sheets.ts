@@ -138,14 +138,31 @@ export async function getAllAlerts(): Promise<AlertRow[]> {
 
 /**
  * Get today's alerts (excluding canceled)
+ * Uses America/New_York local day boundaries (not UTC).
  */
 export async function getTodayAlerts(): Promise<AlertRow[]> {
   const all = await getAllAlerts();
-  const today = new Date().toISOString().slice(0, 10);
 
-  return all.filter(
-    (r) => r.timestamp.startsWith(today) && r.status !== "canceled"
+  // "Now" in New York
+  const nyNow = new Date(
+    new Date().toLocaleString("en-US", { timeZone: "America/New_York" })
   );
+
+  // Start/end of today in New York
+  const start = new Date(nyNow);
+  start.setHours(0, 0, 0, 0);
+
+  const end = new Date(nyNow);
+  end.setHours(23, 59, 59, 999);
+
+  return all.filter((r) => {
+    if (r.status === "canceled") return false;
+
+    const t = Date.parse(r.timestamp); // works for your ISO timestamps
+    if (Number.isNaN(t)) return false;
+
+    return t >= start.getTime() && t <= end.getTime();
+  });
 }
 
 /**
