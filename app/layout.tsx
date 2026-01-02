@@ -17,16 +17,29 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Inventory Alert",
   description: "Cafe inventory alert system",
+
+  // ✅ PWA + iOS support
+  manifest: "/manifest.json",
+
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Inventory Alert",
+  },
+
+  icons: {
+    apple: "/icons/icon-180.png",
+  },
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{ children: React.ReactNode }>) {
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <ClerkProvider
-      // ✅ After logout, send them to sign-in
       afterSignOutUrl="/sign-in"
-      // ✅ Optional: if you want Clerk to know your routes explicitly
       signInUrl="/sign-in"
       signUpUrl="/sign-up"
     >
