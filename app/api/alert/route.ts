@@ -1,6 +1,8 @@
+// app/api/alert/route.ts
 import { NextResponse } from "next/server";
 import { logAlertToSheet } from "@/lib/sheets";
 import { sendOneSignalPush } from "@/lib/onesignal";
+import { sendAlertEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
 
@@ -45,7 +47,7 @@ export async function POST(req: Request) {
 
     const alertId = `${Date.now()}_${item}_${location}`.toLowerCase();
 
-    // 1) Log to Google Sheets
+    // 1) Log to Google Sheets (ONLY ONCE)
     try {
       console.log("➡️ Logging to Sheets...");
       await logAlertToSheet({
@@ -60,7 +62,6 @@ export async function POST(req: Request) {
       console.log("✅ Sheets log OK");
     } catch (e: any) {
       console.error("❌ Sheets log FAILED:", e?.message || e);
-      // IMPORTANT: Return failure so we know this is the blocker
       return NextResponse.json(
         {
           ok: false,
@@ -69,6 +70,38 @@ export async function POST(req: Request) {
         },
         { status: 500 }
       );
+    }
+
+    // 1.5) Send email alert (temporary fallback)
+    try {
+      const baseUrl =
+        process.env.NEXT_PUBLIC_BASE_URL ||
+        "https://www.inventory.alert.cbq.thetoolshed.app";
+
+      const checklistUrl = `${baseUrl}/checklist`;
+
+      await sendAlertEmail({
+        subject: `Inventory Alert: ${item} (${qty.toUpperCase()})`,
+        html: `
+          <div style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; line-height:1.4;">
+            <h2>Inventory Alert</h2>
+            <p><b>Item:</b> ${item}</p>
+            <p><b>Location:</b> ${location}</p>
+            <p><b>Status:</b> ${qty.toUpperCase()}</p>
+            ${note ? `<p><b>Note:</b> ${note}</p>` : ""}
+            <p style="margin-top:16px;">
+              <a href="${checklistUrl}" style="padding:10px 14px;background:#111827;color:#fff;border-radius:8px;text-decoration:none;">
+                Open Checklist
+              </a>
+            </p>
+          </div>
+        `,
+      });
+
+      console.log("✅ Email alert sent");
+    } catch (e: any) {
+      console.warn("⚠️ Email alert failed:", e?.message || e);
+      // Do NOT fail the request if email fails
     }
 
     // 2) Send OneSignal push (safe to fail without breaking logging)
@@ -80,12 +113,14 @@ export async function POST(req: Request) {
           note ? ` — ${note}` : ""
         }`,
         url: `${
-          process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"
+          process.env.NEXT_PUBLIC_BASE_URL ||
+          "https://www.inventory.alert.cbq.thetoolshed.app"
         }/checklist`,
       });
       console.log("✅ OneSignal send OK");
     } catch (e: any) {
       console.warn("⚠️ OneSignal push failed:", e?.message || e);
+      // Do NOT fail the request if push fails
     }
 
     console.log("✅ /api/alert DONE", { alertId, ms: Date.now() - started });
