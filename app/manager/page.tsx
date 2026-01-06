@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getTodayManagerAlerts } from "@/lib/sheets";
 import ManagerClient from "./ManagerClient";
 import { LogoutButton } from "../components/LogoutButton";
+import EnableNotificationsButton from "../components/EnableNotificationsButton";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,6 +28,10 @@ export default async function ManagerPage() {
           <Link href="/checklist">Checklist</Link>
           <a href="/manager.csv">Export CSV</a>
         </nav>
+
+        <div className="flex items-center gap-3">
+          <EnableNotificationsButton />
+        </div>
       </header>
 
       <p style={{ opacity: 0.8 }}>Click a header to sort.</p>
