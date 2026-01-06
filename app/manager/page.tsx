@@ -24,10 +24,10 @@ export default async function ManagerPage() {
           <LogoutButton />
         </nav>
 
-        <nav style={{ display: "flex", gap: 12 }}>
+        {/* <nav style={{ display: "flex", gap: 12 }}>
           <Link href="/checklist">Checklist</Link>
           <a href="/manager.csv">Export CSV</a>
-        </nav>
+        </nav> */}
 
         <div className="flex items-center gap-3">
           <EnableNotificationsButton />
