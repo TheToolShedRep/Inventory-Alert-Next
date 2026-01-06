@@ -5,6 +5,8 @@ import ManagerClient from "./ManagerClient";
 import { LogoutButton } from "../components/LogoutButton";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export default async function ManagerPage() {
   const rows = await getTodayManagerAlerts(); // active + resolved

@@ -4,6 +4,8 @@ import { getTodayChecklist } from "@/lib/sheets";
 import ChecklistClient from "./ChecklistClient";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export default async function ChecklistPage() {
   const items = await getTodayChecklist(); // latest per item/location, includes alertId + timestamp
