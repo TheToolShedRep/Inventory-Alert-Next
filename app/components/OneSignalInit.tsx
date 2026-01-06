@@ -1,46 +1,51 @@
 "use client";
 
-import { useEffect } from "react";
-
-declare global {
-  interface Window {
-    OneSignal?: any;
-  }
-}
+import { useEffect, useState } from "react";
+import OneSignal from "react-onesignal";
 
 export default function OneSignalInit() {
+  const [debug, setDebug] = useState<string>("OneSignal: not started");
+
   useEffect(() => {
     const appId = process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID;
+
     if (!appId) {
-      console.warn("Missing NEXT_PUBLIC_ONESIGNAL_APP_ID");
+      setDebug("OneSignal: MISSING NEXT_PUBLIC_ONESIGNAL_APP_ID");
       return;
     }
 
-    console.log("ONESIGNAL INIT: appId =", appId);
+    setDebug(`OneSignal: appId loaded (${appId.slice(0, 6)}...)`);
 
-    // Ensure OneSignal array exists
-    window.OneSignal = window.OneSignal || [];
-    const OneSignal = window.OneSignal;
-
-    OneSignal.push(function () {
-      OneSignal.init({
-        appId,
-        allowLocalhostAsSecureOrigin: true,
-        serviceWorkerPath: "OneSignalSDKWorker.js",
-        serviceWorkerUpdaterPath: "OneSignalSDKUpdaterWorker.js",
+    OneSignal.init({
+      appId,
+      allowLocalhostAsSecureOrigin: true,
+      serviceWorkerPath: "OneSignalSDKWorker.js",
+      serviceWorkerUpdaterPath: "OneSignalSDKUpdaterWorker.js",
+    })
+      .then(() => setDebug(`OneSignal: init OK (${appId.slice(0, 6)}...)`))
+      .catch((err) => {
+        console.error("OneSignal init error:", err);
+        setDebug("OneSignal: init FAILED (check console)");
       });
-    });
-
-    // Load OneSignal SDK script once
-    const scriptId = "onesignal-sdk";
-    if (!document.getElementById(scriptId)) {
-      const s = document.createElement("script");
-      s.id = scriptId;
-      s.src = "https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js";
-      s.async = true;
-      document.head.appendChild(s);
-    }
   }, []);
 
-  return null;
+  // Tiny badge in bottom-left on every page (TEMPORARY)
+  return (
+    <div
+      style={{
+        position: "fixed",
+        left: 8,
+        bottom: 8,
+        zIndex: 999999,
+        fontSize: 12,
+        padding: "6px 8px",
+        borderRadius: 8,
+        background: "rgba(0,0,0,0.75)",
+        color: "white",
+        maxWidth: 280,
+      }}
+    >
+      {debug}
+    </div>
+  );
 }
