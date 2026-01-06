@@ -16,6 +16,8 @@ export default function OneSignalInit() {
       return;
     }
 
+    console.log("ONESIGNAL INIT: appId =", appId);
+
     // Ensure OneSignal array exists
     window.OneSignal = window.OneSignal || [];
     const OneSignal = window.OneSignal;
