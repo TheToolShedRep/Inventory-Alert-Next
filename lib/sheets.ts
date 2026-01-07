@@ -211,22 +211,49 @@ export async function getTodayManagerAlerts(): Promise<AlertRow[]> {
  * - only ACTIVE items
  * - deduped by item+location (latest wins)
  */
+// export async function getTodayChecklist(): Promise<AlertRow[]> {
+//   const alerts = await getTodayAlerts();
+//   const activeAlerts = alerts.filter((a) => a.status === "active");
+
+//   const map = new Map<string, AlertRow>();
+
+//   for (const alert of activeAlerts) {
+//     const key = `${alert.item}|${alert.location}`;
+//     const existing = map.get(key);
+
+//     if (!existing || alert.timestamp > existing.timestamp) {
+//       map.set(key, alert);
+//     }
+//   }
+
+//   return Array.from(map.values());
+// }
+
+/**
+ * Checklist for today:
+ * - deduped by item+location (latest wins, regardless of status)
+ * - then only returns rows where the latest status is ACTIVE
+ *
+ * This prevents an item from "coming back" after refresh
+ * when an older active alert exists behind a newer resolved alert.
+ */
 export async function getTodayChecklist(): Promise<AlertRow[]> {
-  const alerts = await getTodayAlerts();
-  const activeAlerts = alerts.filter((a) => a.status === "active");
+  const alerts = await getTodayAlerts(); // already excludes canceled
 
-  const map = new Map<string, AlertRow>();
+  // Step 1: find the latest alert per item+location (any status)
+  const latestByKey = new Map<string, AlertRow>();
 
-  for (const alert of activeAlerts) {
+  for (const alert of alerts) {
     const key = `${alert.item}|${alert.location}`;
-    const existing = map.get(key);
+    const existing = latestByKey.get(key);
 
     if (!existing || alert.timestamp > existing.timestamp) {
-      map.set(key, alert);
+      latestByKey.set(key, alert);
     }
   }
 
-  return Array.from(map.values());
+  // Step 2: show ONLY if the latest alert is active
+  return Array.from(latestByKey.values()).filter((a) => a.status === "active");
 }
 
 /**
