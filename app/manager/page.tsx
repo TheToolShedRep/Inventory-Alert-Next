@@ -4,6 +4,7 @@ import { getTodayManagerAlerts } from "@/lib/sheets";
 import ManagerClient from "./ManagerClient";
 import { LogoutButton } from "../components/LogoutButton";
 import EnableNotificationsButton from "../components/EnableNotificationsButton";
+import SubscribeOnLogin from "./SubscribeOnLogin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,6 +33,7 @@ export default async function ManagerPage() {
         <div className="flex items-center gap-3">
           <EnableNotificationsButton />
         </div>
+        <SubscribeOnLogin />
       </header>
 
       <p style={{ opacity: 0.8 }}>Click a header to sort.</p>
