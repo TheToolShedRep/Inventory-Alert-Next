@@ -2,25 +2,48 @@
 import { google } from "googleapis";
 
 /**
- * Env
+ * ============================
+ * ENV
+ * ============================
+ *
+ * Google Sheets uses ONE spreadsheetId (SHEET_ID) for the entire file.
+ * Individual tabs are addressed by name via the range: `${TAB_NAME}!A:K`
+ *
+ * This file handles ALERTS data only.
+ *
+ * ✅ Recommended env going forward:
+ *   - SHEET_ID
+ *   - GOOGLE_SERVICE_ACCOUNT_JSON_BASE64
+ *   - ALERTS_TAB=Alerts
+ *
+ * 🟡 Backwards-compatible fallback:
+ *   - SHEET_TAB (older name used previously)
  */
-const SHEET_ID = process.env.SHEET_ID!;
-const SHEET_TAB = process.env.SHEET_TAB!;
-const SERVICE_ACCOUNT_BASE64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64!;
+const SHEET_ID = process.env.SHEET_ID;
+const ALERTS_TAB = process.env.ALERTS_TAB || process.env.SHEET_TAB; // backward compatible
+const SERVICE_ACCOUNT_BASE64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64;
+
+if (!SHEET_ID) throw new Error("Missing env: SHEET_ID");
+if (!ALERTS_TAB)
+  throw new Error("Missing env: ALERTS_TAB (or legacy SHEET_TAB)");
+if (!SERVICE_ACCOUNT_BASE64)
+  throw new Error("Missing env: GOOGLE_SERVICE_ACCOUNT_JSON_BASE64");
 
 /**
- * Business timezone
- * IMPORTANT:
- * Inventory operations are based on local store days,
- * not UTC calendar days. This prevents alerts submitted
- * late at night from disappearing due to UTC rollover.
+ * ============================
+ * BUSINESS TIMEZONE
+ * ============================
+ * Inventory operations are based on local store days, not UTC calendar days.
+ * This prevents alerts submitted late at night from disappearing due to UTC rollover.
  */
 const BUSINESS_TIMEZONE = "America/New_York";
 
 /**
+ * ============================
  * Row type (camelCase in code; snake_case headers in Sheets is fine)
+ * ============================
  *
- * Sheet columns (A:K):
+ * Alerts sheet columns (A:K):
  * A timestamp
  * B item
  * C qty            (we use: "low" | "empty")
@@ -48,11 +71,13 @@ export type AlertRow = {
 };
 
 /**
+ * ============================
  * Sheets client
+ * ============================
  */
 function getSheetsClient() {
   const creds = JSON.parse(
-    Buffer.from(SERVICE_ACCOUNT_BASE64, "base64").toString("utf-8")
+    Buffer.from(SERVICE_ACCOUNT_BASE64!, "base64").toString("utf-8")
   );
 
   const auth = new google.auth.GoogleAuth({
@@ -64,8 +89,10 @@ function getSheetsClient() {
 }
 
 /**
- * Append an alert row to the sheet
+ * ============================
+ * Append an alert row to Alerts tab
  * Matches columns A:K.
+ * ============================
  */
 export async function logAlertToSheet({
   item,
@@ -87,7 +114,7 @@ export async function logAlertToSheet({
   const sheets = getSheetsClient();
   const timestamp = new Date().toISOString();
 
-  // Sheet columns A:K
+  // Alerts tab columns A:K
   const values = [
     [
       timestamp, // A timestamp
@@ -105,22 +132,24 @@ export async function logAlertToSheet({
   ];
 
   await sheets.spreadsheets.values.append({
-    spreadsheetId: SHEET_ID,
-    range: `${SHEET_TAB}!A1`,
+    spreadsheetId: SHEET_ID!,
+    range: `${ALERTS_TAB}!A1`,
     valueInputOption: "RAW",
     requestBody: { values },
   });
 }
 
 /**
- * Read all alerts from sheet (A:K)
+ * ============================
+ * Read all alerts from Alerts tab (A:K)
+ * ============================
  */
 export async function getAllAlerts(): Promise<AlertRow[]> {
   const sheets = getSheetsClient();
 
   const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SHEET_ID,
-    range: `${SHEET_TAB}!A:K`,
+    spreadsheetId: SHEET_ID!,
+    range: `${ALERTS_TAB}!A:K`,
   });
 
   const values = res.data.values || [];
@@ -167,17 +196,18 @@ export async function getAllAlerts(): Promise<AlertRow[]> {
 }
 
 /**
+ * ============================
  * Get today's alerts (business-local day)
- * NOTE: We exclude canceled here so they don't clutter daily views.
- * Resolved stays (Manager + CSV need an audit trail).
+ * NOTE:
+ * - We exclude canceled so they don't clutter daily views.
+ * - Resolved stays (Manager + CSV need an audit trail).
+ * ============================
  */
 export async function getTodayAlerts(): Promise<AlertRow[]> {
   const all = await getAllAlerts();
 
   const localNow = new Date(
-    new Date().toLocaleString("en-US", {
-      timeZone: BUSINESS_TIMEZONE,
-    })
+    new Date().toLocaleString("en-US", { timeZone: BUSINESS_TIMEZONE })
   );
 
   const start = new Date(localNow);
@@ -197,9 +227,11 @@ export async function getTodayAlerts(): Promise<AlertRow[]> {
 }
 
 /**
+ * ============================
  * Manager view for today:
  * - includes active + resolved
  * - excludes canceled
+ * ============================
  */
 export async function getTodayManagerAlerts(): Promise<AlertRow[]> {
   const all = await getTodayAlerts();
@@ -207,35 +239,14 @@ export async function getTodayManagerAlerts(): Promise<AlertRow[]> {
 }
 
 /**
- * Checklist for today:
- * - only ACTIVE items
- * - deduped by item+location (latest wins)
- */
-// export async function getTodayChecklist(): Promise<AlertRow[]> {
-//   const alerts = await getTodayAlerts();
-//   const activeAlerts = alerts.filter((a) => a.status === "active");
-
-//   const map = new Map<string, AlertRow>();
-
-//   for (const alert of activeAlerts) {
-//     const key = `${alert.item}|${alert.location}`;
-//     const existing = map.get(key);
-
-//     if (!existing || alert.timestamp > existing.timestamp) {
-//       map.set(key, alert);
-//     }
-//   }
-
-//   return Array.from(map.values());
-// }
-
-/**
+ * ============================
  * Checklist for today:
  * - deduped by item+location (latest wins, regardless of status)
  * - then only returns rows where the latest status is ACTIVE
  *
- * This prevents an item from "coming back" after refresh
- * when an older active alert exists behind a newer resolved alert.
+ * This prevents an item from "coming back" after refresh when an older active alert
+ * exists behind a newer resolved alert.
+ * ============================
  */
 export async function getTodayChecklist(): Promise<AlertRow[]> {
   const alerts = await getTodayAlerts(); // already excludes canceled
@@ -257,18 +268,20 @@ export async function getTodayChecklist(): Promise<AlertRow[]> {
 }
 
 /**
+ * ============================
  * Cancel an alert by alertId (soft cancel)
  * Meaning: "this alert was a mistake / undo"
  *
  * - Finds matching row by I column (alert_id)
  * - Updates H:K (status, alert_id, canceled_at, resolved_at)
+ * ============================
  */
 export async function cancelAlertById(alertId: string): Promise<boolean> {
   const sheets = getSheetsClient();
 
   const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SHEET_ID,
-    range: `${SHEET_TAB}!A:K`,
+    spreadsheetId: SHEET_ID!,
+    range: `${ALERTS_TAB}!A:K`,
   });
 
   const values = res.data.values || [];
@@ -276,16 +289,16 @@ export async function cancelAlertById(alertId: string): Promise<boolean> {
 
   for (let i = 1; i < values.length; i++) {
     const row = values[i];
-    const rowAlertId = row[8]; // I column
+    const rowAlertId = row[8]; // I column (0-indexed)
 
     if (rowAlertId === alertId) {
-      const rowNumber = i + 1;
+      const rowNumber = i + 1; // sheet rows are 1-indexed
       const canceledAt = new Date().toISOString();
 
       // Update H:K
       await sheets.spreadsheets.values.update({
-        spreadsheetId: SHEET_ID,
-        range: `${SHEET_TAB}!H${rowNumber}:K${rowNumber}`,
+        spreadsheetId: SHEET_ID!,
+        range: `${ALERTS_TAB}!H${rowNumber}:K${rowNumber}`,
         valueInputOption: "RAW",
         requestBody: {
           values: [["canceled", alertId, canceledAt, ""]],
@@ -300,18 +313,20 @@ export async function cancelAlertById(alertId: string): Promise<boolean> {
 }
 
 /**
+ * ============================
  * Resolve an alert by alertId (soft resolve)
  * Meaning: "we restocked / replaced / bought it"
  *
  * - Finds matching row by I column (alert_id)
  * - Updates H:K (status, alert_id, canceled_at, resolved_at)
+ * ============================
  */
 export async function resolveAlertById(alertId: string): Promise<boolean> {
   const sheets = getSheetsClient();
 
   const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SHEET_ID,
-    range: `${SHEET_TAB}!A:K`,
+    spreadsheetId: SHEET_ID!,
+    range: `${ALERTS_TAB}!A:K`,
   });
 
   const values = res.data.values || [];
@@ -319,7 +334,7 @@ export async function resolveAlertById(alertId: string): Promise<boolean> {
 
   for (let i = 1; i < values.length; i++) {
     const row = values[i];
-    const rowAlertId = row[8]; // I column
+    const rowAlertId = row[8]; // I column (0-indexed)
 
     if (rowAlertId === alertId) {
       const rowNumber = i + 1;
@@ -327,8 +342,8 @@ export async function resolveAlertById(alertId: string): Promise<boolean> {
 
       // Update H:K
       await sheets.spreadsheets.values.update({
-        spreadsheetId: SHEET_ID,
-        range: `${SHEET_TAB}!H${rowNumber}:K${rowNumber}`,
+        spreadsheetId: SHEET_ID!,
+        range: `${ALERTS_TAB}!H${rowNumber}:K${rowNumber}`,
         valueInputOption: "RAW",
         requestBody: {
           values: [["resolved", alertId, "", resolvedAt]],
