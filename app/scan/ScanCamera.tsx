@@ -22,29 +22,29 @@ export default function ScanCamera({
   const [cameraStarted, setCameraStarted] = useState(false);
   const [cameraError, setCameraError] = useState<string>("");
 
-  // ---- Platform detection (good enough for gating behavior) ----
+  // ---- Platform detection ----
   const isIOS = useMemo(() => {
     if (typeof navigator === "undefined") return false;
     return /iPhone|iPad|iPod/i.test(navigator.userAgent || "");
   }, []);
 
-  // iOS "standalone" PWA (Home Screen)
+  // iOS "standalone" PWA (Home Screen) (used only for messaging)
   const isStandalonePWA = useMemo(() => {
     if (typeof window === "undefined") return false;
 
-    // iOS safari supports navigator.standalone
     const navAny = navigator as any;
     const iosStandalone =
       typeof navAny.standalone === "boolean" && navAny.standalone;
 
-    // Some browsers support display-mode media query
     const displayModeStandalone =
       window.matchMedia?.("(display-mode: standalone)")?.matches ?? false;
 
     return Boolean(iosStandalone || displayModeStandalone);
   }, []);
 
-  const shouldPreferPhotoScan = isIOS && isStandalonePWA;
+  // ✅ Based on your testing: iPhone browsers ALSO unreliable for live decoding.
+  // So we "prefer photo scan" on all iOS (Safari + PWA).
+  const shouldPreferPhotoScan = isIOS;
 
   // Detect native BarcodeDetector support once
   useEffect(() => {
@@ -70,7 +70,6 @@ export default function ScanCamera({
     setStatus("Starting camera…");
 
     try {
-      // iOS behaves better with explicit ideal size constraints
       const constraints: MediaStreamConstraints = {
         video: {
           facingMode: { ideal: "environment" },
@@ -93,10 +92,12 @@ export default function ScanCamera({
       setBusy(false);
       setCameraStarted(true);
 
-      if (supported) {
+      // If we’re on iOS, we still start the camera so user can “frame” the barcode,
+      // but we tell them photo scan is the reliable method.
+      if (supported && !shouldPreferPhotoScan) {
         setStatus("Point camera at barcode");
       } else if (shouldPreferPhotoScan) {
-        setStatus('iPhone PWA: Use "Take Photo to Scan" (most reliable).');
+        setStatus('iPhone: Use "Take Photo to Scan" (most reliable).');
       } else {
         setStatus("Point camera at barcode (compat mode)");
       }
@@ -122,15 +123,17 @@ export default function ScanCamera({
   }, []);
 
   /**
-   * ✅ Android live scan (BarcodeDetector)
-   * iPhone Safari: may or may not support BarcodeDetector, but if it does, it works.
-   * iPhone PWA: often unreliable for live decode — we do NOT attempt ZXing live decode here.
+   * ✅ Live scanning loop (Native BarcodeDetector only)
+   * - Great on Android Chrome
+   * - On iOS, BarcodeDetector is often missing (supported=false)
+   * - Even if it exists, iOS live decode is flaky, so we skip live decode when shouldPreferPhotoScan=true
    */
   useEffect(() => {
     if (!cameraStarted) return;
     if (!videoRef.current) return;
     if (busy) return;
     if (!supported) return;
+    if (shouldPreferPhotoScan) return; // ✅ do not attempt live decode on iOS
 
     const BarcodeDetector = (window as any).BarcodeDetector;
     const detector = new BarcodeDetector({
@@ -170,11 +173,18 @@ export default function ScanCamera({
       stopped = true;
       cancelAnimationFrame(raf);
     };
-  }, [cameraStarted, supported, busy, onDetected, stopCamera]);
+  }, [
+    cameraStarted,
+    supported,
+    shouldPreferPhotoScan,
+    busy,
+    onDetected,
+    stopCamera,
+  ]);
 
   /**
-   * ✅ Reliable scan for iOS PWA: Take Photo -> decode image
-   * This works consistently in standalone mode where live scanning is flaky.
+   * ✅ Photo decode (reliable on iOS)
+   * We downscale + add contrast before ZXing decodeFromCanvas.
    */
   const decodeImageFile = useCallback(
     async (file: File) => {
@@ -195,9 +205,10 @@ export default function ScanCamera({
 
       const reader = new BrowserMultiFormatReader(hints);
 
+      let objectUrl = "";
       try {
-        const objectUrl = URL.createObjectURL(file);
         const img = new Image();
+        objectUrl = URL.createObjectURL(file);
 
         await new Promise<void>((resolve, reject) => {
           img.onload = () => resolve();
@@ -205,18 +216,36 @@ export default function ScanCamera({
           img.src = objectUrl;
         });
 
-        const result: Result = await reader.decodeFromImageElement(img);
-        URL.revokeObjectURL(objectUrl);
+        // ✅ Downscale huge iPhone images (critical)
+        const MAX_WIDTH = 1000;
+        const scale = Math.min(1, MAX_WIDTH / img.width);
 
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.floor(img.width * scale));
+        canvas.height = Math.max(1, Math.floor(img.height * scale));
+
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("Canvas not supported");
+
+        ctx.filter = "contrast(1.2)";
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        const result: Result = await reader.decodeFromCanvas(canvas);
         const value = result?.getText()?.trim();
-        if (!value) throw new Error("No barcode found in photo.");
 
+        if (!value) throw new Error("No barcode found in image.");
+
+        // success → stop camera + advance
         stopCamera();
         onDetected(value);
       } catch (e: any) {
         setBusy(false);
         setStatus("Could not read barcode. Try again or use manual entry.");
         setCameraError(e?.message || "Could not read barcode from photo.");
+      } finally {
+        try {
+          if (objectUrl) URL.revokeObjectURL(objectUrl);
+        } catch {}
       }
     },
     [onDetected, stopCamera]
@@ -254,26 +283,17 @@ export default function ScanCamera({
           )}
         </div>
 
-        {/* iPhone PWA: promote photo scan as primary */}
+        {/* iPhone: promote photo scan as primary */}
         {isIOS ? (
           <div className="mt-2 space-y-2">
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className={`w-full rounded-lg border bg-white px-4 py-2 text-sm font-medium ${
-                shouldPreferPhotoScan ? "" : "opacity-90"
-              }`}
+              className="w-full rounded-lg border bg-white px-4 py-2 text-sm font-medium"
             >
-              {shouldPreferPhotoScan
-                ? "Take Photo to Scan (Recommended on iPhone PWA)"
-                : "Take Photo to Scan (iPhone fallback)"}
+              Take Photo to Scan (Recommended on iPhone)
             </button>
 
-            {/* 
-              NOTE:
-              - capture="environment" works in Safari sometimes, but can be inconsistent in PWA.
-              - We still include it; if it’s ignored, iOS will open photo picker.
-            */}
             <input
               ref={fileInputRef}
               type="file"
@@ -287,12 +307,10 @@ export default function ScanCamera({
               }}
             />
 
-            {shouldPreferPhotoScan ? (
-              <div className="text-xs text-neutral-600">
-                iPhone Home Screen apps often can’t decode live barcodes
-                reliably. Photo scan is the most consistent option.
-              </div>
-            ) : null}
+            <div className="text-xs text-neutral-600">
+              iPhone browsers/PWA often can’t decode live barcodes reliably.
+              Photo scan is the most consistent option.
+            </div>
           </div>
         ) : null}
 
@@ -335,15 +353,9 @@ export default function ScanCamera({
           </button>
         </div>
 
-        {shouldPreferPhotoScan ? (
-          <p className="mt-2 text-xs text-neutral-500">
-            In iPhone PWA mode, use “Take Photo to Scan” for best results.
-          </p>
-        ) : (
-          <p className="mt-2 text-xs text-neutral-500">
-            Manual entry always works if scanning is flaky.
-          </p>
-        )}
+        <p className="mt-2 text-xs text-neutral-500">
+          Manual entry always works if scanning is flaky.
+        </p>
       </div>
     </div>
   );
