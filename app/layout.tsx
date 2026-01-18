@@ -44,7 +44,8 @@ export default function RootLayout({
       signInUrl="/sign-in"
       signUpUrl="/sign-up"
     >
-      <html lang="en">
+      {/* 👇 FORCE LIGHT MODE */}
+      <html lang="en" className="light">
         <body
           className={`${geistSans.variable} ${geistMono.variable} antialiased`}
         >
