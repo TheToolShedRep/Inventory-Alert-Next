@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { BrowserMultiFormatReader, IScannerControls } from "@zxing/browser";
+import { BarcodeFormat, DecodeHintType, Result } from "@zxing/library";
 
 export default function ScanCamera({
   onDetected,
@@ -10,24 +12,48 @@ export default function ScanCamera({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
-  const [supported, setSupported] = useState(false);
+  // ZXing scanner controls (so we can stop it from inside the callback)
+  const zxingControlsRef = useRef<IScannerControls | null>(null);
+
+  const [supported, setSupported] = useState(false); // native BarcodeDetector support
   const [manual, setManual] = useState("");
   const [status, setStatus] = useState<string>(
-    "Tap “Start Camera” to scan a barcode."
+    'Tap "Start Camera" to scan a barcode.'
   );
   const [busy, setBusy] = useState(false);
 
   const [cameraStarted, setCameraStarted] = useState(false);
   const [cameraError, setCameraError] = useState<string>("");
 
-  // Detect BarcodeDetector support once
+  // Detect native BarcodeDetector support once
   useEffect(() => {
     const hasBarcodeDetector =
       typeof (window as any).BarcodeDetector !== "undefined";
     setSupported(hasBarcodeDetector);
   }, []);
 
-  async function startCamera() {
+  const stopCamera = useCallback(() => {
+    // Stop ZXing decode loop (if running)
+    try {
+      zxingControlsRef.current?.stop();
+    } catch {}
+    zxingControlsRef.current = null;
+
+    // Stop camera stream
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+
+    setCameraStarted(false);
+    setStatus('Camera stopped. Tap "Start Camera" to scan again.');
+  }, []);
+
+  const startCamera = useCallback(async () => {
     setCameraError("");
     setStatus("Starting camera…");
 
@@ -44,12 +70,13 @@ export default function ScanCamera({
         await videoRef.current.play();
       }
 
+      setBusy(false);
       setCameraStarted(true);
 
       setStatus(
         supported
           ? "Point camera at barcode"
-          : "Camera started. This device may not support live barcode detection — use manual entry."
+          : "Point camera at barcode (compat mode)"
       );
     } catch (e: any) {
       const msg =
@@ -61,76 +88,127 @@ export default function ScanCamera({
       setStatus("Camera not available.");
       setCameraStarted(false);
     }
-  }
-
-  function stopCamera() {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-    setCameraStarted(false);
-    setStatus("Camera stopped. Tap “Start Camera” to scan again.");
-  }
+  }, [supported]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      try {
+        zxingControlsRef.current?.stop();
+      } catch {}
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
       }
     };
   }, []);
 
-  // Live scanning loop (only when camera started + supported)
+  /**
+   * Live scanning loop:
+   * - Native BarcodeDetector when supported (Android Chrome)
+   * - ZXing fallback when not supported (iPhone Safari / iOS PWA)
+   */
   useEffect(() => {
-    if (!supported) return;
     if (!cameraStarted) return;
     if (!videoRef.current) return;
     if (busy) return;
 
-    const BarcodeDetector = (window as any).BarcodeDetector;
-    const detector = new BarcodeDetector({
-      formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128"],
-    });
+    // ✅ Case 1: Native BarcodeDetector (Android Chrome)
+    if (supported) {
+      const BarcodeDetector = (window as any).BarcodeDetector;
+      const detector = new BarcodeDetector({
+        formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128"],
+      });
 
-    let raf = 0;
-    let stopped = false;
+      let raf = 0;
+      let stopped = false;
 
-    const tick = async () => {
-      if (stopped) return;
+      const tick = async () => {
+        if (stopped) return;
 
-      try {
-        const video = videoRef.current!;
-        if (video.readyState >= 2) {
-          const barcodes = await detector.detect(video);
-          if (barcodes?.length) {
-            const value = (barcodes[0]?.rawValue || "").trim();
-            if (value) {
-              setBusy(true);
-              // stop camera to avoid double-detections / heat
-              stopCamera();
-              onDetected(value);
-              return;
+        try {
+          const video = videoRef.current!;
+          if (video.readyState >= 2) {
+            const barcodes = await detector.detect(video);
+            if (barcodes?.length) {
+              const value = (barcodes[0]?.rawValue || "").trim();
+              if (value) {
+                setBusy(true);
+                stopCamera();
+                onDetected(value);
+                return;
+              }
             }
           }
+        } catch {
+          // ignore
         }
-      } catch {
-        // ignore detection errors
-      }
+
+        raf = requestAnimationFrame(tick);
+      };
 
       raf = requestAnimationFrame(tick);
-    };
 
-    raf = requestAnimationFrame(tick);
+      return () => {
+        stopped = true;
+        cancelAnimationFrame(raf);
+      };
+    }
+
+    // ✅ Case 2: ZXing fallback
+    const hints = new Map();
+    hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+      BarcodeFormat.UPC_A,
+      BarcodeFormat.UPC_E,
+      BarcodeFormat.EAN_13,
+      BarcodeFormat.EAN_8,
+      BarcodeFormat.CODE_128,
+    ]);
+
+    const reader = new BrowserMultiFormatReader(hints);
+
+    let cancelled = false;
+
+    // Important: in your version, this returns Promise<IScannerControls>
+    const controlsPromise = reader.decodeFromVideoElement(
+      videoRef.current!,
+      (result: Result | undefined, _err: unknown) => {
+        if (cancelled) return;
+
+        if (result) {
+          const value = result.getText()?.trim();
+          if (value) {
+            setBusy(true);
+
+            // Stop ZXing decode loop immediately to avoid double-detects
+            try {
+              zxingControlsRef.current?.stop();
+            } catch {}
+
+            stopCamera();
+            onDetected(value);
+          }
+        }
+
+        // _err is often NotFoundException during scanning; ignore
+      }
+    );
+
+    controlsPromise
+      .then((c) => {
+        if (!cancelled) zxingControlsRef.current = c;
+      })
+      .catch(() => {
+        // ignore
+      });
 
     return () => {
-      stopped = true;
-      cancelAnimationFrame(raf);
+      cancelled = true;
+      try {
+        zxingControlsRef.current?.stop();
+      } catch {}
+      zxingControlsRef.current = null;
     };
-  }, [supported, cameraStarted, busy, onDetected]);
+  }, [cameraStarted, supported, busy, onDetected, stopCamera]);
 
   const canManualGo = (manual || "").replace(/\D/g, "").length >= 8;
 
@@ -165,6 +243,11 @@ export default function ScanCamera({
             </button>
           )}
         </div>
+
+        {/* TEMP DEBUG */}
+        <div className="mt-2 text-xs text-neutral-500">
+          BarcodeDetector supported: {String(supported)}
+        </div>
       </div>
 
       {/* Status / errors */}
@@ -173,11 +256,6 @@ export default function ScanCamera({
       {cameraError ? (
         <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
           {cameraError}
-          <div className="mt-2 text-xs text-amber-800">
-            Tip: On iPhone Safari, tap the <b>aA</b> icon → Website Settings →
-            Camera → <b>Allow</b>. On Chrome, tap the lock icon → Permissions →
-            Camera → <b>Allow</b>.
-          </div>
         </div>
       ) : null}
 
