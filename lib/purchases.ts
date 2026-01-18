@@ -218,3 +218,68 @@ export async function upsertCatalogRow(params: CatalogUpsertInput) {
 
   return { action: "updated" as const };
 }
+
+/**
+ * Returns smart defaults from Catalog for a UPC:
+ * - default_location
+ * - preferred_vendor
+ *
+ * NOTE:
+ * We do NOT hardcode "G" and "H" anymore.
+ * We read the header row and find the column indexes dynamically so your sheet can move columns.
+ */
+export async function getCatalogDefaultsByUpc(upc: string): Promise<{
+  defaultLocation?: "Kitchen" | "Front";
+  preferredVendor?: string;
+}> {
+  const sheets = getSheetsClient();
+
+  // Read A:Z so we can locate columns by header name.
+  // (If you add columns later, this still works.)
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID!,
+    range: `${CATALOG_TAB}!A:Z`,
+  });
+
+  const values = res.data.values || [];
+  if (values.length <= 1) return {};
+
+  const header = (values[0] || []).map((h) => (h || "").toString().trim());
+
+  // Find columns by header labels (snake_case per your sheet plan)
+  const upcIdx = header.findIndex((h) => h.toLowerCase() === "upc");
+  const defaultLocIdx = header.findIndex(
+    (h) => h.toLowerCase() === "default_location"
+  );
+  const vendorIdx = header.findIndex(
+    (h) => h.toLowerCase() === "preferred_vendor"
+  );
+
+  // If header is missing expected columns, fail gracefully
+  if (upcIdx === -1) return {};
+
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i] || [];
+    const rowUpc = (row[upcIdx] || "").toString().trim();
+    if (rowUpc !== upc) continue;
+
+    const defaultLoc =
+      defaultLocIdx >= 0 ? (row[defaultLocIdx] || "").toString().trim() : "";
+    const vendor =
+      vendorIdx >= 0 ? (row[vendorIdx] || "").toString().trim() : "";
+
+    const normalizedLoc =
+      defaultLoc === "Kitchen"
+        ? "Kitchen"
+        : defaultLoc === "Front"
+        ? "Front"
+        : undefined;
+
+    return {
+      defaultLocation: normalizedLoc,
+      preferredVendor: vendor || undefined,
+    };
+  }
+
+  return {};
+}

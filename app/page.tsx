@@ -1,10 +1,13 @@
 // app/page.tsx
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
+import HomeHub from "./HomeHub";
 
 export default async function HomePage() {
-  const a = await auth(); // ✅ Clerk v6 returns a Promise here
+  const a = await auth();
 
-  if (a.userId) redirect("/manager");
-  redirect("/sign-in");
+  if (!a.userId) redirect("/sign-in");
+
+  // Logged in → show the hub (mobile-first)
+  return <HomeHub />;
 }

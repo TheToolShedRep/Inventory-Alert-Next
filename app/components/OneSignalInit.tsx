@@ -7,6 +7,13 @@ export default function OneSignalInit() {
   const [debug, setDebug] = useState<string>("OneSignal: not started");
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const host = window.location.hostname;
+      if (host === "localhost" || host === "127.0.0.1") {
+        return;
+      }
+    }
+
     const appId = process.env.NEXT_PUBLIC_ONESIGNAL_APP_ID;
 
     if (!appId) {

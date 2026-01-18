@@ -1,8 +1,14 @@
 // app/api/upc-lookup/route.ts
 import { NextResponse } from "next/server";
 
+export const runtime = "nodejs"; // force Node runtime (more predictable in dev)
+
 function normalizeBarcode(input: string) {
   return (input || "").replace(/\D/g, ""); // digits only
+}
+
+function preview(text: string, max = 400) {
+  return text.length > max ? text.slice(0, max) + "…" : text;
 }
 
 /**
@@ -10,50 +16,107 @@ function normalizeBarcode(input: string) {
  * Calls EAN-Search barcode lookup and returns a normalized response to the UI.
  */
 export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const raw = searchParams.get("upc") || "";
-  const barcode = normalizeBarcode(raw);
-
-  if (!barcode) {
-    return NextResponse.json(
-      { ok: false, upc: "", error: "Missing UPC/EAN" },
-      { status: 400 }
-    );
-  }
-
-  const base = process.env.UPC_API_BASE_URL || "https://api.ean-search.org/api";
-  const token = process.env.UPC_API_KEY;
-
-  if (!token) {
-    return NextResponse.json(
-      { ok: false, upc: barcode, error: "UPC API not configured" },
-      { status: 500 }
-    );
-  }
-
   try {
+    const { searchParams } = new URL(req.url);
+    const raw = searchParams.get("upc") || "";
+    const barcode = normalizeBarcode(raw);
+
+    if (!barcode) {
+      return NextResponse.json(
+        { ok: false, upc: "", error: "Missing UPC/EAN" },
+        { status: 400 }
+      );
+    }
+
+    const base =
+      process.env.UPC_API_BASE_URL || "https://api.ean-search.org/api";
+    const token = process.env.UPC_API_KEY;
+
+    if (!token) {
+      return NextResponse.json(
+        {
+          ok: false,
+          upc: barcode,
+          error: "UPC API not configured (missing UPC_API_KEY)",
+        },
+        { status: 500 }
+      );
+    }
+
+    // const url =
+    //   `${base}` +
+    //   `?token=${encodeURIComponent(token)}` +
+    //   `&op=barcode-lookup` +
+    //   `&barcode=${encodeURIComponent(barcode)}` +
+    //   `&format=json`;
+
+    const isUpc = barcode.length === 12;
+    const isEan = barcode.length === 13 || barcode.length === 14;
+
+    if (!isUpc && !isEan) {
+      return NextResponse.json(
+        {
+          ok: false,
+          upc: barcode,
+          error: `Unsupported barcode length (${barcode.length})`,
+        },
+        { status: 400 }
+      );
+    }
+
     const url =
       `${base}` +
       `?token=${encodeURIComponent(token)}` +
       `&op=barcode-lookup` +
-      `&barcode=${encodeURIComponent(barcode)}` +
-      `&format=json`;
+      `&format=json` +
+      (isUpc
+        ? `&upc=${encodeURIComponent(barcode)}`
+        : `&ean=${encodeURIComponent(barcode)}`);
 
     const r = await fetch(url, { cache: "no-store" });
 
+    // Always read as text first — upstream sometimes returns HTML even with 200.
+    const rawText = await r.text();
+    const contentType = r.headers.get("content-type") || "";
+
     if (!r.ok) {
       return NextResponse.json(
-        { ok: false, upc: barcode, error: `UPC API error (${r.status})` },
+        {
+          ok: false,
+          upc: barcode,
+          error: `UPC API error (${r.status})`,
+          status: r.status,
+          contentType,
+          upstreamPreview: preview(rawText),
+          url,
+        },
         { status: 502 }
       );
     }
 
-    const data = await r.json();
+    // Parse JSON safely
+    let data: any;
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      return NextResponse.json(
+        {
+          ok: false,
+          upc: barcode,
+          error: "UPC provider returned non-JSON",
+          contentType,
+          upstreamPreview: preview(rawText),
+          url,
+        },
+        { status: 502 }
+      );
+    }
 
     // EAN-Search typically returns product under `product` or an array under `products`
-    const product = data?.product ?? data?.products?.[0] ?? data;
+    const product = Array.isArray(data)
+      ? data[0]
+      : data?.product ?? data?.products?.[0] ?? data;
 
-    // Normalize fields (defensive)
     const name =
       (product?.name || product?.title || "").toString().trim() ||
       "Unknown Item";
@@ -85,14 +148,26 @@ export async function GET(req: Request) {
         .toString()
         .trim() || undefined;
 
-    // EAN-Search may return "ean" or "barcode" in response
     const ean =
       (product?.ean || product?.barcode || "").toString().trim() || undefined;
 
+    // return NextResponse.json({
+    //   ok: true,
+    //   upc: barcode,
+    //   ean,
+    //   name,
+    //   brand,
+    //   sizeUnit,
+    //   imageUrl,
+    //   googleCategoryId,
+    //   googleCategoryName,
+    //   issuingCountry,
+    //   // raw: data, // uncomment temporarily if needed
+    // });
     return NextResponse.json({
       ok: true,
-      upc: barcode, // what you scanned (digits)
-      ean, // provider's GTIN/EAN if present
+      upc: barcode,
+      ean,
       name,
       brand,
       sizeUnit,
@@ -100,11 +175,16 @@ export async function GET(req: Request) {
       googleCategoryId,
       googleCategoryName,
       issuingCountry,
-      // raw: data, // uncomment temporarily if mapping needs debugging
+      raw: data, // ✅ TEMP: inspect provider response
     });
   } catch (e: any) {
+    // Last line of defense: ALWAYS JSON
     return NextResponse.json(
-      { ok: false, upc: barcode, error: e?.message || "Lookup failed" },
+      {
+        ok: false,
+        upc: "",
+        error: e?.message || "Lookup failed (server error)",
+      },
       { status: 500 }
     );
   }

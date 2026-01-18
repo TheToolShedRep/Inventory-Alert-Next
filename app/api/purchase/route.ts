@@ -36,7 +36,11 @@ export async function POST(req: Request) {
   const productName = (body.productName || "").toString().trim();
 
   const qtyPurchased = Number(body.qtyPurchased ?? 0);
-  const totalPrice = Number(body.totalPrice);
+
+  // The UI is currently sending "price" as a unit price.
+  // We'll store it as unitPrice and compute totalPrice.
+  const unitPrice = Number(body.totalPrice); // (rename later if you want)
+  const totalPrice = qtyPurchased * unitPrice;
 
   const storeVendor = (body.storeVendor || "").toString().trim();
   const assignedLocation = (body.assignedLocation || "").toString().trim();
@@ -60,12 +64,13 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
-  if (!Number.isFinite(qtyPurchased) || qtyPurchased < 1) {
+  if (!Number.isFinite(unitPrice) || unitPrice < 0) {
     return NextResponse.json(
-      { ok: false, error: "qtyPurchased must be >= 1" },
+      { ok: false, error: "unitPrice must be a number >= 0" },
       { status: 400 }
     );
   }
+
   if (!Number.isFinite(totalPrice) || totalPrice < 0) {
     return NextResponse.json(
       { ok: false, error: "totalPrice must be a number >= 0" },

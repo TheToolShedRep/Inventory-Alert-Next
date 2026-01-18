@@ -5,19 +5,21 @@ import AlertClient from "./AlertClient";
 export const dynamic = "force-dynamic";
 
 type PageProps = {
-  searchParams?: {
+  searchParams?: Promise<{
     item?: string;
     location?: string;
-  };
+  }>;
 };
 
-export default function AlertPage({ searchParams }: PageProps) {
-  // Even if Render gives {}, AlertClient will fallback to client query params
-  const item = (searchParams?.item || "").trim();
-  const location = (searchParams?.location || "").trim();
+export default async function AlertPage({ searchParams }: PageProps) {
+  // Next.js 16: searchParams is async
+  const sp = (await searchParams) || {};
+
+  const item = (sp.item || "").trim();
+  const location = (sp.location || "").trim();
 
   return (
-    <AppShell>
+    <AppShell title="Scan QR Alert">
       <AlertClient item={item} location={location} />
     </AppShell>
   );
