@@ -17,7 +17,7 @@ export async function POST(req: Request) {
     if (!raw) {
       return NextResponse.json(
         { ok: false, error: "Missing JSON body" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -28,7 +28,7 @@ export async function POST(req: Request) {
       console.warn("❌ /api/alert invalid JSON body");
       return NextResponse.json(
         { ok: false, error: "Invalid JSON body" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -36,13 +36,14 @@ export async function POST(req: Request) {
     const location = String(body.location || "").trim();
     const qty = String(body.qty || "").trim();
     const note = String(body.note || "").trim();
+    const source = String(body.source || "qr").trim();
 
     console.log("✅ /api/alert PARSED:", { item, location, qty, note });
 
     if (!item || !location || !qty) {
       return NextResponse.json(
         { ok: false, error: "Missing required fields: item, location, qty" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -61,6 +62,7 @@ export async function POST(req: Request) {
       qty,
       location,
       note,
+      source,
       ip,
       userAgent,
       alertId,
@@ -87,8 +89,8 @@ export async function POST(req: Request) {
       const subscriberEmails: string[] = Array.isArray(subResult)
         ? subResult
         : Array.isArray(subResult?.emails)
-        ? subResult.emails
-        : [];
+          ? subResult.emails
+          : [];
 
       // If nobody subscribed yet, fall back to ALERT_EMAIL_TO (optional)
       const fallbackTo = process.env.ALERT_EMAIL_TO || "";
@@ -96,15 +98,15 @@ export async function POST(req: Request) {
         subscriberEmails.length > 0
           ? subscriberEmails
           : fallbackTo
-          ? [fallbackTo]
-          : [];
+            ? [fallbackTo]
+            : [];
 
       console.log("✅ Subscribers:", subscriberEmails.length);
       console.log("✅ Email recipients:", recipients);
 
       if (recipients.length === 0) {
         console.warn(
-          "⚠️ No recipients found (no subscribers, no ALERT_EMAIL_TO). Skipping email."
+          "⚠️ No recipients found (no subscribers, no ALERT_EMAIL_TO). Skipping email.",
         );
       } else {
         await sendAlertEmail({
@@ -156,7 +158,7 @@ export async function POST(req: Request) {
     console.error("❌ POST /api/alert failed:", e?.message || e);
     return NextResponse.json(
       { ok: false, error: String(e?.message || e) },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

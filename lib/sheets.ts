@@ -77,7 +77,7 @@ export type AlertRow = {
  */
 function getSheetsClient() {
   const creds = JSON.parse(
-    Buffer.from(SERVICE_ACCOUNT_BASE64!, "base64").toString("utf-8")
+    Buffer.from(SERVICE_ACCOUNT_BASE64!, "base64").toString("utf-8"),
   );
 
   const auth = new google.auth.GoogleAuth({
@@ -99,6 +99,7 @@ export async function logAlertToSheet({
   qty,
   location,
   note,
+  source,
   ip,
   userAgent,
   alertId,
@@ -107,6 +108,7 @@ export async function logAlertToSheet({
   qty: string; // "low" | "empty"
   location: string;
   note?: string;
+  source?: string;
   ip?: string;
   userAgent?: string;
   alertId: string;
@@ -176,8 +178,8 @@ export async function getAllAlerts(): Promise<AlertRow[]> {
       status === "canceled"
         ? "canceled"
         : status === "resolved"
-        ? "resolved"
-        : "active";
+          ? "resolved"
+          : "active";
 
     return {
       timestamp,
@@ -207,7 +209,7 @@ export async function getTodayAlerts(): Promise<AlertRow[]> {
   const all = await getAllAlerts();
 
   const localNow = new Date(
-    new Date().toLocaleString("en-US", { timeZone: BUSINESS_TIMEZONE })
+    new Date().toLocaleString("en-US", { timeZone: BUSINESS_TIMEZONE }),
   );
 
   const start = new Date(localNow);

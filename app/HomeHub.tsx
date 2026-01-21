@@ -25,6 +25,14 @@ export default function HomeHub() {
         enabled: true,
       },
       {
+        key: "memo",
+        title: "Memo Mode",
+        subtitle: "Tap & speak (or type) — sends the same alert as QR",
+        href: "/memo",
+        enabled: true,
+      },
+
+      {
         key: "scan",
         title: "Shopping Scan",
         subtitle: "Scan UPCs and log purchases (Catalog learns)",
@@ -90,7 +98,7 @@ export default function HomeHub() {
         enabled: false,
       },
     ],
-    []
+    [],
   );
 
   const handleDisabledClick = () => {
@@ -98,7 +106,7 @@ export default function HomeHub() {
     window.clearTimeout((handleDisabledClick as any)._t);
     (handleDisabledClick as any)._t = window.setTimeout(
       () => setToast(""),
-      1600
+      1600,
     );
   };
 
@@ -139,7 +147,7 @@ export default function HomeHub() {
                 Locked
               </div>
             </button>
-          )
+          ),
         )}
       </div>
 
