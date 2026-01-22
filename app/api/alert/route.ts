@@ -1,3 +1,4 @@
+// app/api/alert/route.ts
 import { NextResponse } from "next/server";
 import { logAlertToSheet } from "@/lib/sheets";
 import { sendOneSignalPush } from "@/lib/onesignal";
@@ -36,9 +37,11 @@ export async function POST(req: Request) {
     const location = String(body.location || "").trim();
     const qty = String(body.qty || "").trim();
     const note = String(body.note || "").trim();
+
+    // ✅ CHANGE: capture source ("qr" or "memo") and pass it downstream
     const source = String(body.source || "qr").trim();
 
-    console.log("✅ /api/alert PARSED:", { item, location, qty, note });
+    console.log("✅ /api/alert PARSED:", { item, location, qty, note, source });
 
     if (!item || !location || !qty) {
       return NextResponse.json(
@@ -62,6 +65,7 @@ export async function POST(req: Request) {
       qty,
       location,
       note,
+      // ✅ CHANGE: include source in the Sheets payload (so the sheet can store memo vs qr)
       source,
       ip,
       userAgent,
@@ -76,7 +80,7 @@ export async function POST(req: Request) {
 
     const checklistUrl = `${baseUrl.replace(/\/$/, "")}/checklist`;
 
-    // 2️⃣ Email alert to subscribers
+    // 2️⃣ Email alert to subscribers (do not block overall success)
     try {
       console.log("➡️ Fetching subscriber emails...");
 
@@ -109,10 +113,8 @@ export async function POST(req: Request) {
           "⚠️ No recipients found (no subscribers, no ALERT_EMAIL_TO). Skipping email.",
         );
       } else {
-        await sendAlertEmail({
-          // NOTE: your sendAlertEmail() should support either `to` or use ALERT_EMAIL_TO internally.
-          // If your sendAlertEmail() supports `to`, this will work immediately.
-          // If it does NOT, paste your lib/email.ts and I’ll update it cleanly.
+        // ✅ CHANGE: capture and log the Resend result (includes id) for tracing deliverability
+        const emailResult = await sendAlertEmail({
           to: recipients,
           subject: `Inventory Alert: ${item} (${qty.toUpperCase()})`,
           html: `
@@ -131,7 +133,7 @@ export async function POST(req: Request) {
           `,
         });
 
-        console.log("✅ Email alert sent");
+        console.log("✅ Email alert result:", emailResult);
       }
     } catch (e: any) {
       console.warn("⚠️ Email alert failed:", e?.message || e);
