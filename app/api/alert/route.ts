@@ -38,7 +38,7 @@ export async function POST(req: Request) {
     const qty = String(body.qty || "").trim();
     const note = String(body.note || "").trim();
 
-    // ✅ CHANGE: capture source ("qr" or "memo") and pass it downstream
+    // ✅ Phase 1: "qr" vs "memo" (memo page sends source:"memo")
     const source = String(body.source || "qr").trim();
 
     console.log("✅ /api/alert PARSED:", { item, location, qty, note, source });
@@ -58,29 +58,42 @@ export async function POST(req: Request) {
 
     const alertId = `${Date.now()}_${item}_${location}`.toLowerCase();
 
-    // 1️⃣ Log to Google Sheets (single source of truth)
+    // Build base URL safely (used for email + push deep link)
+    const baseUrl =
+      process.env.NEXT_PUBLIC_BASE_URL ||
+      "https://www.inventory.alert.cbq.thetoolshed.app";
+    const checklistUrl = `${baseUrl.replace(/\/$/, "")}/checklist`;
+
+    /**
+     * =========================
+     * 1️⃣ Google Sheets logging
+     * =========================
+     * ✅ CHANGE: Add step timing so we can see if delays come from Sheets.
+     */
     console.log("➡️ Logging to Sheets...");
+    const tSheets = Date.now();
+
     await logAlertToSheet({
       item,
       qty,
       location,
       note,
-      // ✅ CHANGE: include source in the Sheets payload (so the sheet can store memo vs qr)
-      source,
+      source, // ✅ keeps track of "memo" vs "qr"
       ip,
       userAgent,
       alertId,
     });
+
     console.log("✅ Sheets log OK");
+    console.log("⏱ Sheets ms:", Date.now() - tSheets);
 
-    // Build base URL safely
-    const baseUrl =
-      process.env.NEXT_PUBLIC_BASE_URL ||
-      "https://www.inventory.alert.cbq.thetoolshed.app";
-
-    const checklistUrl = `${baseUrl.replace(/\/$/, "")}/checklist`;
-
-    // 2️⃣ Email alert to subscribers (do not block overall success)
+    /**
+     * =========================
+     * 2️⃣ Email notifications
+     * =========================
+     * ✅ CHANGE: Add step timing + log Resend response (id) for traceability.
+     * Note: email failures should never block the main alert pipeline.
+     */
     try {
       console.log("➡️ Fetching subscriber emails...");
 
@@ -113,7 +126,8 @@ export async function POST(req: Request) {
           "⚠️ No recipients found (no subscribers, no ALERT_EMAIL_TO). Skipping email.",
         );
       } else {
-        // ✅ CHANGE: capture and log the Resend result (includes id) for tracing deliverability
+        const tEmail = Date.now(); // ✅ CHANGE: start email timer right before send
+
         const emailResult = await sendAlertEmail({
           to: recipients,
           subject: `Inventory Alert: ${item} (${qty.toUpperCase()})`,
@@ -133,15 +147,24 @@ export async function POST(req: Request) {
           `,
         });
 
+        // ✅ CHANGE: log the Resend response (usually includes id)
         console.log("✅ Email alert result:", emailResult);
+        console.log("⏱ Email send ms:", Date.now() - tEmail);
       }
     } catch (e: any) {
       console.warn("⚠️ Email alert failed:", e?.message || e);
     }
 
-    // 3️⃣ Push notification (do not block success)
+    /**
+     * =========================
+     * 3️⃣ OneSignal push
+     * =========================
+     * ✅ CHANGE: Add step timing so we can see push latency separately.
+     */
     try {
       console.log("➡️ Sending OneSignal push...");
+      const tPush = Date.now();
+
       await sendOneSignalPush({
         title: `Inventory Alert: ${item}`,
         message: `${location} reported ${qty.toUpperCase()}${
@@ -149,12 +172,16 @@ export async function POST(req: Request) {
         }`,
         url: checklistUrl,
       });
+
       console.log("✅ OneSignal send OK");
+      console.log("⏱ Push ms:", Date.now() - tPush);
     } catch (e: any) {
       console.warn("⚠️ OneSignal push failed:", e?.message || e);
     }
 
+    // End-to-end timing (Sheets + Email + Push)
     console.log("✅ /api/alert DONE", { alertId, ms: Date.now() - started });
+
     return NextResponse.json({ ok: true, alertId });
   } catch (e: any) {
     console.error("❌ POST /api/alert failed:", e?.message || e);
