@@ -122,20 +122,36 @@ export default function MemoPage() {
       setIsListening(false);
     };
 
+    // recognition.onresult = (event: any) => {
+    //   // Combine all results into one string
+    //   let combined = "";
+    //   for (let i = 0; i < event.results.length; i++) {
+    //     combined += event.results[i][0]?.transcript || "";
+    //   }
+    //   setTranscript((prev) => {
+    //     // If user already typed something, append.
+    //     const base = prev.trim();
+    //     const next = combined.trim();
+    //     if (!base) return next;
+    //     if (!next) return base;
+    //     return `${base} ${next}`.replace(/\s+/g, " ");
+    //   });
+    // };
+
     recognition.onresult = (event: any) => {
-      // Combine all results into one string
-      let combined = "";
+      let finalText = "";
+      let interimText = "";
+
       for (let i = 0; i < event.results.length; i++) {
-        combined += event.results[i][0]?.transcript || "";
+        const text = event.results[i][0]?.transcript || "";
+        if (event.results[i].isFinal) finalText += text;
+        else interimText += text;
       }
-      setTranscript((prev) => {
-        // If user already typed something, append.
-        const base = prev.trim();
-        const next = combined.trim();
-        if (!base) return next;
-        if (!next) return base;
-        return `${base} ${next}`.replace(/\s+/g, " ");
-      });
+
+      const combined = `${finalText} ${interimText}`
+        .trim()
+        .replace(/\s+/g, " ");
+      setTranscript(combined);
     };
 
     try {
