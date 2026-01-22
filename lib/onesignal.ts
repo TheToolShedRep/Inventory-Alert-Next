@@ -16,7 +16,7 @@ export async function sendOneSignalPush({ title, message, url }: SendPushArgs) {
     app_id: appId,
     headings: { en: title },
     contents: { en: message },
-    included_segments: ["Subscribed Users"],
+    included_segments: ["Subscribed Users"], // current targeting
   };
 
   if (url) payload.url = url;
@@ -30,10 +30,24 @@ export async function sendOneSignalPush({ title, message, url }: SendPushArgs) {
     body: JSON.stringify(payload),
   });
 
-  if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    throw new Error(`OneSignal error: ${res.status} ${txt}`);
+  // ✅ CHANGE: always read response text and log it
+  const text = await res.text().catch(() => "");
+  let json: any = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    // keep as text if not JSON
   }
 
-  return res.json();
+  console.log("📣 OneSignal status:", res.status);
+  console.log("📣 OneSignal response:", json ?? text);
+
+  if (!res.ok) {
+    throw new Error(
+      `OneSignal error: ${res.status} ${json?.errors ?? text ?? "unknown"}`,
+    );
+  }
+
+  // ✅ CHANGE: return parsed JSON (or raw if needed)
+  return json ?? { ok: true, raw: text };
 }
