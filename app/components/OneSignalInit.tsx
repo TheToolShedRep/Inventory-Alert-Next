@@ -64,14 +64,43 @@ export default function OneSignalInit() {
         bottom: 8,
         zIndex: 999999,
         fontSize: 12,
-        padding: "6px 8px",
+        padding: "10px 10px",
         borderRadius: 8,
         background: "rgba(0,0,0,0.75)",
         color: "white",
-        maxWidth: 280,
+        maxWidth: 320,
       }}
     >
-      {debug}
+      <div style={{ marginBottom: 8 }}>{debug}</div>
+
+      <button
+        onClick={async () => {
+          try {
+            // ✅ Must be triggered by a real click to show the browser prompt
+            const result = await OneSignal.Notifications.requestPermission();
+            console.log("🔔 requestPermission result:", result);
+
+            // Re-check browser-level permission
+            console.log("🔔 Notification.permission:", Notification.permission);
+
+            setDebug(`OneSignal: permission = ${Notification.permission}`);
+          } catch (e) {
+            console.error("❌ requestPermission error:", e);
+            setDebug("OneSignal: requestPermission FAILED (see console)");
+          }
+        }}
+        style={{
+          width: "100%",
+          padding: "8px 10px",
+          borderRadius: 8,
+          border: "1px solid rgba(255,255,255,0.25)",
+          background: "rgba(255,255,255,0.10)",
+          color: "white",
+          cursor: "pointer",
+        }}
+      >
+        Enable Notifications
+      </button>
     </div>
   );
 }
