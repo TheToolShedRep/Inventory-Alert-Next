@@ -5,19 +5,6 @@ import { google } from "googleapis";
  * ============================
  * ENV
  * ============================
- *
- * Google Sheets uses ONE spreadsheetId (SHEET_ID) for the entire file.
- * Individual tabs are addressed by name via the range: `${TAB_NAME}!A:K`
- *
- * This file handles ALERTS data only.
- *
- * ✅ Recommended env going forward:
- *   - SHEET_ID
- *   - GOOGLE_SERVICE_ACCOUNT_JSON_BASE64
- *   - ALERTS_TAB=Alerts
- *
- * 🟡 Backwards-compatible fallback:
- *   - SHEET_TAB (older name used previously)
  */
 const SHEET_ID = process.env.SHEET_ID;
 const ALERTS_TAB = process.env.ALERTS_TAB || process.env.SHEET_TAB; // backward compatible
@@ -33,28 +20,28 @@ if (!SERVICE_ACCOUNT_BASE64)
  * ============================
  * BUSINESS TIMEZONE
  * ============================
- * Inventory operations are based on local store days, not UTC calendar days.
- * This prevents alerts submitted late at night from disappearing due to UTC rollover.
  */
 const BUSINESS_TIMEZONE = "America/New_York";
 
 /**
  * ============================
- * Row type (camelCase in code; snake_case headers in Sheets is fine)
+ * Alerts sheet columns
  * ============================
- *
- * Alerts sheet columns (A:K):
+ * Baseline columns A:K
  * A timestamp
  * B item
- * C qty            (we use: "low" | "empty")
+ * C qty
  * D location
  * E note
  * F ip
  * G user_agent
- * H status         ("active" | "canceled" | "resolved")
+ * H status
  * I alert_id
  * J canceled_at
  * K resolved_at
+ *
+ * Optional column (if present):
+ * L source
  */
 export type AlertRow = {
   timestamp: string;
@@ -68,13 +55,9 @@ export type AlertRow = {
   alertId: string;
   canceledAt: string;
   resolvedAt: string;
+  source?: string; // optional
 };
 
-/**
- * ============================
- * Sheets client
- * ============================
- */
 function getSheetsClient() {
   const creds = JSON.parse(
     Buffer.from(SERVICE_ACCOUNT_BASE64!, "base64").toString("utf-8"),
@@ -89,47 +72,64 @@ function getSheetsClient() {
 }
 
 /**
- * ============================
- * Append an alert row to Alerts tab
- * Matches columns A:K.
- * ============================
+ * Detect whether Alerts sheet has a `source` column (L) by reading header row.
+ */
+async function hasSourceColumn(sheets: any): Promise<boolean> {
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID!,
+    range: `${ALERTS_TAB}!1:1`,
+  });
+
+  const headers = (res.data.values?.[0] || []).map((h: any) =>
+    String(h || "")
+      .trim()
+      .toLowerCase(),
+  );
+
+  return headers.includes("source");
+}
+
+/**
+ * Append an alert row (positional, stable)
  */
 export async function logAlertToSheet({
   item,
   qty,
   location,
   note,
-  source,
   ip,
   userAgent,
   alertId,
+  source,
 }: {
   item: string;
-  qty: string; // "low" | "empty"
+  qty: string;
   location: string;
   note?: string;
-  source?: string;
   ip?: string;
   userAgent?: string;
   alertId: string;
+  source?: string;
 }) {
   const sheets = getSheetsClient();
   const timestamp = new Date().toISOString();
 
-  // Alerts tab columns A:K
+  const includeSource = await hasSourceColumn(sheets);
+
   const values = [
     [
-      timestamp, // A timestamp
-      item, // B item
-      qty, // C qty
-      location, // D location
-      note ?? "", // E note
-      ip ?? "", // F ip
-      userAgent ?? "", // G user_agent
-      "active", // H status
-      alertId, // I alert_id
-      "", // J canceled_at
-      "", // K resolved_at
+      timestamp, // A
+      item, // B
+      qty, // C
+      location, // D
+      note ?? "", // E
+      ip ?? "", // F
+      userAgent ?? "", // G
+      "active", // H
+      alertId, // I
+      "", // J
+      "", // K
+      ...(includeSource ? [(source ?? "").toLowerCase()] : []), // L (optional)
     ],
   ];
 
@@ -142,16 +142,14 @@ export async function logAlertToSheet({
 }
 
 /**
- * ============================
- * Read all alerts from Alerts tab (A:K)
- * ============================
+ * Read all alerts (A:K + optional L)
  */
 export async function getAllAlerts(): Promise<AlertRow[]> {
   const sheets = getSheetsClient();
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID!,
-    range: `${ALERTS_TAB}!A:K`,
+    range: `${ALERTS_TAB}!A:L`,
   });
 
   const values = res.data.values || [];
@@ -159,7 +157,7 @@ export async function getAllAlerts(): Promise<AlertRow[]> {
 
   const rows = values.slice(1);
 
-  return rows.map((r) => {
+  return rows.map((r: any[]) => {
     const [
       timestamp = "",
       item = "",
@@ -172,6 +170,7 @@ export async function getAllAlerts(): Promise<AlertRow[]> {
       alertId = "",
       canceledAt = "",
       resolvedAt = "",
+      source = "",
     ] = r;
 
     const normalizedStatus: "active" | "canceled" | "resolved" =
@@ -181,7 +180,7 @@ export async function getAllAlerts(): Promise<AlertRow[]> {
           ? "resolved"
           : "active";
 
-    return {
+    const rowObj: AlertRow = {
       timestamp,
       item,
       qty,
@@ -194,17 +193,13 @@ export async function getAllAlerts(): Promise<AlertRow[]> {
       canceledAt,
       resolvedAt,
     };
+
+    if (String(source || "").trim()) rowObj.source = String(source);
+
+    return rowObj;
   });
 }
 
-/**
- * ============================
- * Get today's alerts (business-local day)
- * NOTE:
- * - We exclude canceled so they don't clutter daily views.
- * - Resolved stays (Manager + CSV need an audit trail).
- * ============================
- */
 export async function getTodayAlerts(): Promise<AlertRow[]> {
   const all = await getAllAlerts();
 
@@ -228,32 +223,14 @@ export async function getTodayAlerts(): Promise<AlertRow[]> {
   });
 }
 
-/**
- * ============================
- * Manager view for today:
- * - includes active + resolved
- * - excludes canceled
- * ============================
- */
 export async function getTodayManagerAlerts(): Promise<AlertRow[]> {
   const all = await getTodayAlerts();
   return all.filter((r) => r.status !== "canceled");
 }
 
-/**
- * ============================
- * Checklist for today:
- * - deduped by item+location (latest wins, regardless of status)
- * - then only returns rows where the latest status is ACTIVE
- *
- * This prevents an item from "coming back" after refresh when an older active alert
- * exists behind a newer resolved alert.
- * ============================
- */
 export async function getTodayChecklist(): Promise<AlertRow[]> {
-  const alerts = await getTodayAlerts(); // already excludes canceled
+  const alerts = await getTodayAlerts();
 
-  // Step 1: find the latest alert per item+location (any status)
   const latestByKey = new Map<string, AlertRow>();
 
   for (const alert of alerts) {
@@ -265,25 +242,23 @@ export async function getTodayChecklist(): Promise<AlertRow[]> {
     }
   }
 
-  // Step 2: show ONLY if the latest alert is active
   return Array.from(latestByKey.values()).filter((a) => a.status === "active");
 }
 
 /**
- * ============================
- * Cancel an alert by alertId (soft cancel)
- * Meaning: "this alert was a mistake / undo"
- *
- * - Finds matching row by I column (alert_id)
- * - Updates H:K (status, alert_id, canceled_at, resolved_at)
- * ============================
+ * Cancel/Resolve by alertId (positional)
+ * alert_id is column I (index 8)
+ * status/canceled_at/resolved_at are H/J/K (indexes 7/9/10)
  */
-export async function cancelAlertById(alertId: string): Promise<boolean> {
+async function updateAlertStatusById(
+  alertId: string,
+  nextStatus: "canceled" | "resolved",
+): Promise<boolean> {
   const sheets = getSheetsClient();
 
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID!,
-    range: `${ALERTS_TAB}!A:K`,
+    range: `${ALERTS_TAB}!A:L`,
   });
 
   const values = res.data.values || [];
@@ -291,19 +266,22 @@ export async function cancelAlertById(alertId: string): Promise<boolean> {
 
   for (let i = 1; i < values.length; i++) {
     const row = values[i];
-    const rowAlertId = row[8]; // I column (0-indexed)
+    const rowAlertId = row[8]; // I
 
     if (rowAlertId === alertId) {
-      const rowNumber = i + 1; // sheet rows are 1-indexed
-      const canceledAt = new Date().toISOString();
+      const rowNumber = i + 1;
+      const now = new Date().toISOString();
 
-      // Update H:K
+      const canceledAtVal = nextStatus === "canceled" ? now : "";
+      const resolvedAtVal = nextStatus === "resolved" ? now : "";
+
+      // Update H:K (status, alert_id, canceled_at, resolved_at)
       await sheets.spreadsheets.values.update({
         spreadsheetId: SHEET_ID!,
         range: `${ALERTS_TAB}!H${rowNumber}:K${rowNumber}`,
         valueInputOption: "RAW",
         requestBody: {
-          values: [["canceled", alertId, canceledAt, ""]],
+          values: [[nextStatus, alertId, canceledAtVal, resolvedAtVal]],
         },
       });
 
@@ -314,47 +292,10 @@ export async function cancelAlertById(alertId: string): Promise<boolean> {
   return false;
 }
 
-/**
- * ============================
- * Resolve an alert by alertId (soft resolve)
- * Meaning: "we restocked / replaced / bought it"
- *
- * - Finds matching row by I column (alert_id)
- * - Updates H:K (status, alert_id, canceled_at, resolved_at)
- * ============================
- */
+export async function cancelAlertById(alertId: string): Promise<boolean> {
+  return updateAlertStatusById(alertId, "canceled");
+}
+
 export async function resolveAlertById(alertId: string): Promise<boolean> {
-  const sheets = getSheetsClient();
-
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SHEET_ID!,
-    range: `${ALERTS_TAB}!A:K`,
-  });
-
-  const values = res.data.values || [];
-  if (values.length <= 1) return false;
-
-  for (let i = 1; i < values.length; i++) {
-    const row = values[i];
-    const rowAlertId = row[8]; // I column (0-indexed)
-
-    if (rowAlertId === alertId) {
-      const rowNumber = i + 1;
-      const resolvedAt = new Date().toISOString();
-
-      // Update H:K
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: SHEET_ID!,
-        range: `${ALERTS_TAB}!H${rowNumber}:K${rowNumber}`,
-        valueInputOption: "RAW",
-        requestBody: {
-          values: [["resolved", alertId, "", resolvedAt]],
-        },
-      });
-
-      return true;
-    }
-  }
-
-  return false;
+  return updateAlertStatusById(alertId, "resolved");
 }
