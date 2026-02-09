@@ -78,6 +78,9 @@ export default function AlertClient({
           location,
           qty, // "low" | "out"
           note: note.trim() ? note.trim() : undefined,
+
+          // ✅ NEW: tag alerts coming from the QR flow
+          source: "qr",
         }),
       });
 
