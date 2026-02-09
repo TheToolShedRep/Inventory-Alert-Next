@@ -69,6 +69,10 @@ function StatusPill({ qty }: { qty: string }) {
   );
 }
 
+/**
+ * Cancel = "this was a mistake / undo"
+ * (You already use this elsewhere; keeping it here for parity.)
+ */
 async function cancelAlert(alertId: string) {
   const res = await fetch("/api/alert/cancel", {
     method: "POST",
@@ -79,6 +83,23 @@ async function cancelAlert(alertId: string) {
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || "Cancel failed");
+  }
+}
+
+/**
+ * Resolve = "we handled it / restocked / done"
+ * ✅ This is what Checklist “Resolved” should call.
+ */
+async function resolveAlert(alertId: string) {
+  const res = await fetch("/api/alert/resolve", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ alertId }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || "Resolve failed");
   }
 }
 
@@ -100,9 +121,10 @@ export default function ChecklistClient({
     setItems((cur) => cur.filter((x) => x.alertId !== alertId));
 
     try {
-      await cancelAlert(alertId);
+      // ✅ FIX: call resolve endpoint (not cancel)
+      await resolveAlert(alertId);
     } catch (e) {
-      // rollback if cancel fails
+      // rollback if resolve fails
       setItems(prev);
       alert("Could not mark resolved. Try again.");
     } finally {
