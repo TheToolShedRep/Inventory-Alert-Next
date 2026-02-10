@@ -34,3 +34,35 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+# Inventory Alert System — Documentation
+
+This folder contains handoff-grade documentation for core pipelines.
+
+## Pipelines
+
+### Alerts (DONE)
+
+- File: `alerts-pipeline.md`
+- Covers:
+  - Create / cancel / resolve alert flow
+  - Google Sheets schema
+  - UI interactions
+  - Health endpoints
+- Status: Stable, committed, production-safe
+
+### Prep (NEXT)
+
+- File: `prep-pipeline.md`
+- Covers:
+  - Prep usage logging
+  - Ingredient depletion groundwork
+  - Inventory math inputs
+- Status: Not started
+
+## Design Principles
+
+- Header-driven Google Sheets mapping
+- Append-only writes where possible
+- Non-blocking side effects (email, push)
+- Stability > features
