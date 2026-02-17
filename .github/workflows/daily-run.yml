@@ -1,0 +1,15 @@
+name: Daily Inventory Run
+
+on:
+  schedule:
+    # 7:05 AM Atlanta (ET) ≈ 12:05 UTC (adjust if needed)
+    - cron: "5 12 * * *"
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call daily-run endpoint
+        run: |
+          curl -sS "${{ secrets.DAILY_RUN_URL }}" | tee response.json

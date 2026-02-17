@@ -6,11 +6,11 @@ import { google } from "googleapis";
  * ENV
  * ============================
  */
-const SHEET_ID = process.env.SHEET_ID;
+const GOOGLE_SHEET_ID = process.env.SHEET_ID;
 const ALERTS_TAB = process.env.ALERTS_TAB || process.env.SHEET_TAB; // backward compatible
 const SERVICE_ACCOUNT_BASE64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64;
 
-if (!SHEET_ID) throw new Error("Missing env: SHEET_ID");
+if (!GOOGLE_SHEET_ID) throw new Error("Missing env: SHEET_ID");
 if (!ALERTS_TAB)
   throw new Error("Missing env: ALERTS_TAB (or legacy SHEET_TAB)");
 if (!SERVICE_ACCOUNT_BASE64)
@@ -76,7 +76,7 @@ function getSheetsClient() {
  */
 async function hasSourceColumn(sheets: any): Promise<boolean> {
   const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SHEET_ID!,
+    spreadsheetId: GOOGLE_SHEET_ID!,
     range: `${ALERTS_TAB}!1:1`,
   });
 
@@ -134,7 +134,7 @@ export async function logAlertToSheet({
   ];
 
   await sheets.spreadsheets.values.append({
-    spreadsheetId: SHEET_ID!,
+    spreadsheetId: GOOGLE_SHEET_ID!,
     range: `${ALERTS_TAB}!A1`,
     valueInputOption: "RAW",
     requestBody: { values },
@@ -148,7 +148,7 @@ export async function getAllAlerts(): Promise<AlertRow[]> {
   const sheets = getSheetsClient();
 
   const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SHEET_ID!,
+    spreadsheetId: GOOGLE_SHEET_ID!,
     range: `${ALERTS_TAB}!A:L`,
   });
 
@@ -257,7 +257,7 @@ async function updateAlertStatusById(
   const sheets = getSheetsClient();
 
   const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SHEET_ID!,
+    spreadsheetId: GOOGLE_SHEET_ID!,
     range: `${ALERTS_TAB}!A:L`,
   });
 
@@ -277,7 +277,7 @@ async function updateAlertStatusById(
 
       // Update H:K (status, alert_id, canceled_at, resolved_at)
       await sheets.spreadsheets.values.update({
-        spreadsheetId: SHEET_ID!,
+        spreadsheetId: GOOGLE_SHEET_ID!,
         range: `${ALERTS_TAB}!H${rowNumber}:K${rowNumber}`,
         valueInputOption: "RAW",
         requestBody: {

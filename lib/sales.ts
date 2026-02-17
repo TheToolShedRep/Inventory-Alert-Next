@@ -17,11 +17,11 @@ import { google } from "googleapis";
  * Optional:
  *  - SALES_TAB (defaults to "Sales")
  */
-const SHEET_ID = process.env.SHEET_ID;
+const GOOGLE_SHEET_ID = process.env.GOOGLE_SHEET_ID;
 const SERVICE_ACCOUNT_BASE64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64;
 const SALES_TAB = process.env.SALES_TAB || "Sales";
 
-if (!SHEET_ID) throw new Error("Missing env: SHEET_ID");
+if (!GOOGLE_SHEET_ID) throw new Error("Missing env: SHEET_ID");
 if (!SERVICE_ACCOUNT_BASE64) {
   throw new Error("Missing env: GOOGLE_SERVICE_ACCOUNT_JSON_BASE64");
 }
@@ -73,7 +73,7 @@ export async function appendSalesRows(
   ]);
 
   await sheets.spreadsheets.values.append({
-    spreadsheetId: SHEET_ID!,
+    spreadsheetId: GOOGLE_SHEET_ID!,
     range: `${SALES_TAB}!A:A`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values },
@@ -100,7 +100,7 @@ export async function clearSalesRowsForDate(params: {
   // Read existing Sales rows (A:E).
   // We only need columns: A=date and D=source to find matching rows.
   const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SHEET_ID!,
+    spreadsheetId: GOOGLE_SHEET_ID!,
     range: `${SALES_TAB}!A:E`,
   });
 
@@ -127,7 +127,7 @@ export async function clearSalesRowsForDate(params: {
 
   // To delete rows we need the numeric sheetId for the Sales tab.
   const meta = await sheets.spreadsheets.get({
-    spreadsheetId: SHEET_ID!,
+    spreadsheetId: GOOGLE_SHEET_ID!,
   });
 
   const sheet = meta.data.sheets?.find(
@@ -154,7 +154,7 @@ export async function clearSalesRowsForDate(params: {
   }));
 
   await sheets.spreadsheets.batchUpdate({
-    spreadsheetId: SHEET_ID!,
+    spreadsheetId: GOOGLE_SHEET_ID!,
     requestBody: { requests },
   });
 

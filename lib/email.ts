@@ -47,7 +47,7 @@ export async function sendAlertEmail({
   if (recipients.length === 0) {
     // Don't hard fail the entire alert flow if no recipients are configured.
     console.warn(
-      "⚠️ sendAlertEmail: No recipients found. Provide `to` or set ALERT_EMAIL_TO."
+      "⚠️ sendAlertEmail: No recipients found. Provide `to` or set ALERT_EMAIL_TO.",
     );
     return { ok: false, skipped: true, reason: "no_recipients" };
   }
