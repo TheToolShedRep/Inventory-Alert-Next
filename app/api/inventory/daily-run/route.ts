@@ -1,110 +1,75 @@
 // app/api/inventory/daily-run/route.ts
 import { NextResponse } from "next/server";
-import { appendRowsHeaderDriven } from "@/lib/sheets/sheets-utils";
 
 function ymd(d = new Date()) {
   return d.toISOString().slice(0, 10);
 }
 
-/**
- * Daily Run Orchestrator (MVP)
- * ---------------------------
- * Runs the full daily pipeline:
- *  1) inventory-math/run (mode=replace) -> writes Inventory_Usage for the date
- *  2) inventory/reorder-check           -> overwrites Shopping_List
- *  3) inventory/reorder-email           -> emails subscribers (only if items_flagged > 0)
- *
- * Adds auditable logging to System_Log (append-only).
- *
- * Required Sheet: System_Log (tab)
- * Headers must include:
- *  timestamp
- *  date
- *  inventory_rows_written
- *  items_flagged
- *  emails_sent
- *  duration_ms
- *  status
- *  notes
- */
+function getInternalBase(url: URL) {
+  // Allow manual override (debug)
+  const queryBase = url.searchParams.get("base")?.trim();
+  if (queryBase) return queryBase;
+
+  // Preferred explicit config
+  const envBase = process.env.INTERNAL_BASE_URL?.trim();
+  if (envBase) return envBase;
+
+  // ✅ Render-safe: call ourselves via loopback + PORT
+  const port = process.env.PORT;
+  const renderExternal = process.env.RENDER_EXTERNAL_URL; // usually exists on Render
+  if (port && renderExternal) {
+    return `http://127.0.0.1:${port}`;
+  }
+
+  // Local dev fallback
+  return `${url.protocol}//${url.host}`;
+}
+
+async function fetchJson(url: string, headers: Record<string, string>) {
+  const res = await fetch(url, { cache: "no-store", headers });
+  const text = await res.text();
+
+  // Helpful when an endpoint returns HTML instead of JSON
+  let json: any;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = {
+      ok: false,
+      error: "Non-JSON response",
+      preview: text.slice(0, 200),
+    };
+  }
+
+  return { res, json };
+}
+
 export async function GET(req: Request) {
   const started = Date.now();
   const url = new URL(req.url);
 
-  // Optional override: ?date=YYYY-MM-DD
   const date = url.searchParams.get("date") || ymd();
+  const base = getInternalBase(url);
 
-  // Optional: ?base=http://localhost:3000 (defaults to same host)
-  const base = url.searchParams.get("base") || `${url.protocol}//${url.host}`;
-
-  // Track step + partial results so we can log useful error context
-  let step: "inventory-math" | "reorder-check" | "reorder-email" | "unknown" =
-    "unknown";
-
-  let mathJson: any = null;
-  let checkJson: any = null;
-  let emailJson: any = { skipped: true, reason: "no_items_flagged" };
-
-  // Helper: log to System_Log, but never let logging crash the pipeline response
-  async function logSystemRun(params: {
-    status: "success" | "error";
-    notes?: string;
-  }) {
-    try {
-      const totalMs = Date.now() - started;
-
-      await appendRowsHeaderDriven({
-        tabName: "System_Log",
-        rowObjects: [
-          {
-            timestamp: new Date().toISOString(),
-            date,
-            inventory_rows_written:
-              params.status === "success"
-                ? Number(mathJson?.rows_written || 0)
-                : "",
-            items_flagged:
-              params.status === "success"
-                ? Number(checkJson?.items_flagged || 0)
-                : "",
-            emails_sent:
-              params.status === "success"
-                ? Number(emailJson?.emailed_to || 0)
-                : "",
-            duration_ms: totalMs,
-            status: params.status,
-            // Keep notes short + useful; include step for errors
-            notes: params.notes || "",
-          },
-        ],
-      });
-    } catch (logErr: any) {
-      console.warn(
-        "⚠️ System_Log write failed (non-fatal):",
-        logErr?.message || logErr,
-      );
-    }
-  }
+  const internalKey = process.env.INTERNAL_API_KEY || "";
+  const headers: Record<string, string> = internalKey
+    ? { "x-api-key": internalKey }
+    : {};
 
   try {
     // 1) Inventory usage ledger refresh
-    step = "inventory-math";
     const mathUrl = `${base}/api/inventory-math/run?date=${date}&mode=replace`;
-    const mathRes = await fetch(mathUrl, { cache: "no-store" });
-    mathJson = await mathRes.json();
+    const { res: mathRes, json: mathJson } = await fetchJson(mathUrl, headers);
 
     if (!mathRes.ok || !mathJson?.ok) {
-      await logSystemRun({
-        status: "error",
-        notes: `step=${step}; ${mathJson?.error || "inventory-math failed"}`,
-      });
-
       return NextResponse.json(
         {
           ok: false,
           scope: "daily-run",
-          step,
+          step: "inventory-math",
           date,
+          base,
+          error: mathJson?.error || "inventory-math failed",
           math: mathJson,
           ms: Date.now() - started,
         },
@@ -112,24 +77,21 @@ export async function GET(req: Request) {
       );
     }
 
-    // 2) Reorder check → writes Shopping_List
-    step = "reorder-check";
+    // 2) Reorder check
     const checkUrl = `${base}/api/inventory/reorder-check`;
-    const checkRes = await fetch(checkUrl, { cache: "no-store" });
-    checkJson = await checkRes.json();
+    const { res: checkRes, json: checkJson } = await fetchJson(
+      checkUrl,
+      headers,
+    );
 
     if (!checkRes.ok || !checkJson?.ok) {
-      await logSystemRun({
-        status: "error",
-        notes: `step=${step}; ${checkJson?.error || "reorder-check failed"}`,
-      });
-
       return NextResponse.json(
         {
           ok: false,
           scope: "daily-run",
-          step,
+          step: "reorder-check",
           date,
+          base,
           reorder_check: checkJson,
           ms: Date.now() - started,
         },
@@ -137,27 +99,22 @@ export async function GET(req: Request) {
       );
     }
 
-    // 3) Email only if something is flagged
-    step = "reorder-email";
-    emailJson = { skipped: true, reason: "no_items_flagged" };
+    // 3) Email only if flagged
+    let emailJson: any = { skipped: true, reason: "no_items_flagged" };
 
     if ((checkJson.items_flagged || 0) > 0) {
       const emailUrl = `${base}/api/inventory/reorder-email`;
-      const emailRes = await fetch(emailUrl, { cache: "no-store" });
-      emailJson = await emailRes.json();
+      const { res: emailRes, json } = await fetchJson(emailUrl, headers);
+      emailJson = json;
 
       if (!emailRes.ok || !emailJson?.ok) {
-        await logSystemRun({
-          status: "error",
-          notes: `step=${step}; ${emailJson?.error || "reorder-email failed"}`,
-        });
-
         return NextResponse.json(
           {
             ok: false,
             scope: "daily-run",
-            step,
+            step: "reorder-email",
             date,
+            base,
             reorder_email: emailJson,
             ms: Date.now() - started,
           },
@@ -166,40 +123,28 @@ export async function GET(req: Request) {
       }
     }
 
-    // ✅ Success log
-    await logSystemRun({
-      status: "success",
-      notes:
-        (checkJson.items_flagged || 0) > 0
-          ? "ok"
-          : "ok; no items flagged; email skipped",
-    });
-
     return NextResponse.json({
       ok: true,
       scope: "daily-run",
       date,
+      base,
       ms: Date.now() - started,
       inventory_math: {
-        rows_written: Number(mathJson.rows_written || 0),
+        rows_written: mathJson.rows_written,
         missing_recipes_count: (mathJson.missing_recipes || []).length,
       },
       reorder_check: checkJson,
       reorder_email: emailJson,
     });
   } catch (e: any) {
-    await logSystemRun({
-      status: "error",
-      notes: `step=${step}; ${e?.message || "Server error"}`,
-    });
-
     return NextResponse.json(
       {
         ok: false,
         scope: "daily-run",
         date,
-        step,
-        error: e?.message || "Server error",
+        base,
+        step: "fetch",
+        error: e?.message || "fetch failed",
         ms: Date.now() - started,
       },
       { status: 500 },
