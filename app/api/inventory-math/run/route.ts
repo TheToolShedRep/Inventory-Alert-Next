@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { readTabAsObjects } from "@/lib/sheets/read";
 import { appendRowsHeaderDriven } from "@/lib/sheets/sheets-utils";
 import { overwriteTabValues } from "@/lib/sheets/overwriteTab";
+import { requireInternalKey } from "@/lib/auth/internal";
 
 type RecipeRow = {
   menu_item_clean: string;
@@ -26,6 +27,9 @@ function toNumber(v: any) {
 }
 
 export async function GET(req: Request) {
+  const deny = requireInternalKey(req);
+  if (deny) return deny;
+
   const started = Date.now();
 
   try {

@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { readTabAsObjects } from "@/lib/sheets/read";
 import { sendAlertEmail } from "@/lib/email";
+import { requireInternalKey } from "@/lib/auth/internal";
 
 function norm(v: any) {
   return String(v ?? "").trim();
@@ -15,7 +16,10 @@ function toNumber(v: any) {
   return Number.isFinite(n) ? n : 0;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const deny = requireInternalKey(req);
+  if (deny) return deny;
+
   const started = Date.now();
 
   try {

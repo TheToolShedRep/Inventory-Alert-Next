@@ -1,5 +1,6 @@
 // app/api/inventory/daily-run/route.ts
 import { NextResponse } from "next/server";
+import { requireInternalKey } from "@/lib/auth/internal";
 
 function ymd(d = new Date()) {
   return d.toISOString().slice(0, 10);
@@ -45,6 +46,9 @@ async function fetchJson(url: string, headers: Record<string, string>) {
 }
 
 export async function GET(req: Request) {
+  const deny = requireInternalKey(req);
+  if (deny) return deny;
+
   const started = Date.now();
   const url = new URL(req.url);
 

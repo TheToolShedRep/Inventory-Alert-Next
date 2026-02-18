@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { readTabAsObjects } from "@/lib/sheets/read";
 import { overwriteTabValues } from "@/lib/sheets/overwriteTab";
+import { requireInternalKey } from "@/lib/auth/internal";
 
 function norm(v: any) {
   return String(v ?? "").trim();
@@ -19,7 +20,19 @@ function truthy(v: any) {
   return s === "true" || s === "1" || s === "yes" || s === "y";
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const deny = requireInternalKey(req);
+  if (deny) return deny;
+
+  console.log("REORDER-CHECK HIT ✅", {
+    url: req.url,
+    hasHeader: !!req.headers.get("x-api-key"),
+    expectedSet: !!process.env.INTERNAL_API_KEY,
+    now: new Date().toISOString(),
+  });
+
+  console.log("REORDER-CHECK ROUTE HIT ✅", new Date().toISOString());
+
   const started = Date.now();
   const nowIso = new Date().toISOString();
 
