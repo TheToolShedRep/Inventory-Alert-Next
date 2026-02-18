@@ -1,15 +1,30 @@
-name: Daily Inventory Run
+name: Inventory Daily Run
 
 on:
   schedule:
-    # 7:05 AM Atlanta (ET) ≈ 12:05 UTC (adjust if needed)
-    - cron: "5 12 * * *"
-  workflow_dispatch:
+    # 6:00 AM America/New_York = 11:00 UTC during standard time, 10:00 UTC during daylight time.
+    # GitHub cron uses UTC only. We’ll keep it at 11:00 UTC as a stable baseline.
+    - cron: "0 11 * * *"
+  workflow_dispatch: {}
 
 jobs:
   run:
     runs-on: ubuntu-latest
     steps:
       - name: Call daily-run endpoint
+        env:
+          INTERNAL_API_KEY: ${{ secrets.INTERNAL_API_KEY }}
+          DAILY_RUN_URL: ${{ secrets.DAILY_RUN_URL }}
         run: |
-          curl -sS "${{ secrets.DAILY_RUN_URL }}" | tee response.json
+          set -euo pipefail
+
+          # Fallback if DAILY_RUN_URL secret isn't set
+          URL="${DAILY_RUN_URL:-https://inventory-alert-next.onrender.com/api/inventory/daily-run}"
+
+          echo "Calling: $URL"
+          curl -sS -X GET "$URL" \
+            -H "x-api-key: $INTERNAL_API_KEY" \
+            -H "accept: application/json" \
+            --fail
+          echo ""
+          echo "✅ Daily run triggered successfully"
