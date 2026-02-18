@@ -2,7 +2,6 @@
 import { NextResponse } from "next/server";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { appendPurchaseRow, upsertCatalogRow } from "@/lib/purchases";
-import { requireInternalKey } from "@/lib/auth/internal";
 
 function allowInternalKey(req: Request) {
   const key = req.headers.get("x-api-key");
@@ -43,10 +42,7 @@ function pickNumber(body: any, keys: string[], fallback = 0) {
 }
 
 export async function POST(req: Request) {
-  const deny = requireInternalKey(req);
-  if (deny) return deny;
-
-  // ✅ Auth gate: allow either internal key OR Clerk user
+  //  Auth gate: allow either internal key OR Clerk user
   let enteredBy = "internal";
   if (!allowInternalKey(req)) {
     const { userId } = await auth();
