@@ -11,20 +11,46 @@ jobs:
   run:
     runs-on: ubuntu-latest
     steps:
-      - name: Call daily-run endpoint
+      - name: Call daily-run endpoint (debug)
         env:
           INTERNAL_API_KEY: ${{ secrets.INTERNAL_API_KEY }}
           DAILY_RUN_URL: ${{ secrets.DAILY_RUN_URL }}
         run: |
           set -euo pipefail
 
-          # Fallback if DAILY_RUN_URL secret isn't set
-          URL="${DAILY_RUN_URL:-https://inventory-alert-next.onrender.com/api/inventory/daily-run}"
+          echo "---- DEBUG (safe) ----"
+          if [ -z "${INTERNAL_API_KEY:-}" ]; then
+            echo "❌ INTERNAL_API_KEY is missing/empty in this job"
+          else
+            echo "✅ INTERNAL_API_KEY present (length: ${#INTERNAL_API_KEY})"
+          fi
 
-          echo "Calling: $URL"
-          curl -sS -X GET "$URL" \
+          if [ -z "${DAILY_RUN_URL:-}" ]; then
+            echo "⚠️ DAILY_RUN_URL missing; using default"
+            URL="https://inventory-alert-next.onrender.com/api/inventory/daily-run"
+          else
+            echo "✅ DAILY_RUN_URL present"
+            URL="$DAILY_RUN_URL"
+          fi
+
+          echo "Calling URL: $URL"
+          echo "----------------------"
+
+          # Print status code + response body (without failing the step yet)
+          CODE=$(curl -sS -o resp.json -w "%{http_code}" \
             -H "x-api-key: $INTERNAL_API_KEY" \
             -H "accept: application/json" \
-            --fail
+            "$URL" || true)
+
+          echo "HTTP status: $CODE"
+          echo "Response body:"
+          cat resp.json
           echo ""
+
+          # Now fail the job if not 200
+          if [ "$CODE" != "200" ]; then
+            echo "❌ Non-200 response, failing job"
+            exit 1
+          fi
+
           echo "✅ Daily run triggered successfully"
