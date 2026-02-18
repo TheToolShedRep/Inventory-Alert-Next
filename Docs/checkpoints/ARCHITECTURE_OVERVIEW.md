@@ -1,13 +1,5 @@
 # Document 1: `ARCHITECTURE_OVERVIEW.md`
 
-Copy this into:
-
-```
-docs/ARCHITECTURE_OVERVIEW.md
-```
-
----
-
 # Inventory Alert System
 
 ## Architecture Overview
