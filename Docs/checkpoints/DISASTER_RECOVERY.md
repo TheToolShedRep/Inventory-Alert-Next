@@ -1,11 +1,5 @@
 # Document 6: `DISASTER_RECOVERY.md`
 
-Copy this into:
-
-```
-docs/DISASTER_RECOVERY.md
-```
-
 ---
 
 # Inventory Alert System

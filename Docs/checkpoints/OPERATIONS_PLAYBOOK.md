@@ -1,11 +1,5 @@
 # Document 5: `OPERATIONS_PLAYBOOK.md`
 
-Copy this into:
-
-```
-docs/OPERATIONS_PLAYBOOK.md
-```
-
 ---
 
 # Inventory Alert System

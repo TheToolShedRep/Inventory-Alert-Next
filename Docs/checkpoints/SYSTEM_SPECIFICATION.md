@@ -1,10 +1,4 @@
-# 📘 Document 9: `SYSTEM_SPECIFICATION.md`
-
-Copy this into:
-
-```
-docs/SYSTEM_SPECIFICATION.md
-```
+# Document 9: `SYSTEM_SPECIFICATION.md`
 
 ---
 

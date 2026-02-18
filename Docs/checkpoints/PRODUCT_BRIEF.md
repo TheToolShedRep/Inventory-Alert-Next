@@ -1,10 +1,4 @@
-# 📘 Document 10: `PRODUCT_BRIEF.md`
-
-Copy this into:
-
-```
-docs/PRODUCT_BRIEF.md
-```
+# Document 10: `PRODUCT_BRIEF.md`
 
 ---
 

@@ -1,13 +1,5 @@
 # Document 2: `DEPLOYMENT_GUIDE.md`
 
-Copy this into:
-
-```
-docs/DEPLOYMENT_GUIDE.md
-```
-
----
-
 # Inventory Alert System
 
 ## Deployment Guide

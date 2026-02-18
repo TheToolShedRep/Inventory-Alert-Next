@@ -1,14 +1,5 @@
 ---
-
 # Document 4: `CHANGELOG.md`
-
-Copy this into:
-
-```
-docs/CHANGELOG.md
-```
-
----
 
 # Inventory Alert System
 
@@ -17,7 +8,6 @@ docs/CHANGELOG.md
 All notable changes to this project will be documented in this file.
 
 Format inspired by [Keep a Changelog](https://keepachangelog.com/).
-
 ---
 
 # [1.0.0] – 2026-02-18

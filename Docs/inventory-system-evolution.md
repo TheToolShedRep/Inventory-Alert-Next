@@ -1,4 +1,4 @@
-# 🧠 Inventory Alert System – Evolution Documentation
+# Inventory Alert System – Evolution Documentation
 
 ---
 
@@ -35,7 +35,7 @@ Each product would have:
 
 ---
 
-## 🔹 Phase 1 — QR Alert System (Working Prototype)
+## Phase 1 — QR Alert System (Working Prototype)
 
 ### What Worked
 
@@ -47,7 +47,7 @@ Each product would have:
 
 ### What Failed (Operationally)
 
-#### 🚩 Problem 1: Too Many Products
+#### Problem 1: Too Many Products
 
 Front of house feedback:
 
@@ -55,7 +55,7 @@ Front of house feedback:
 
 This was not a technical failure — it was a UX failure.
 
-#### 🚩 Problem 2: Binder Navigation
+#### Problem 2: Binder Navigation
 
 Even with QR:
 
@@ -101,7 +101,7 @@ Staff could type or speak:
 
 ### New Problems Introduced
 
-#### 🚩 Problem 3: Product Standardization
+#### Problem 3: Product Standardization
 
 With QR:
 
@@ -130,7 +130,7 @@ But normalization remains an open scaling issue.
 
 ---
 
-## 🔹 Phase 3 — Shopping Scan + Purchases Logging
+## Phase 3 — Shopping Scan + Purchases Logging
 
 System expanded to include:
 
@@ -145,7 +145,7 @@ At this point, system evolved beyond alerts into a lightweight inventory OS.
 
 ---
 
-## 🔹 Phase 4 — Inventory Math & Toast Integration
+## Phase 4 — Inventory Math & Toast Integration
 
 ### Shift
 

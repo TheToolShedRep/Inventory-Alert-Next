@@ -1,11 +1,5 @@
 # Document 3: `SECURITY_MODEL.md`
 
-Copy this into:
-
-```
-docs/SECURITY_MODEL.md
-```
-
 ---
 
 # Inventory Alert System

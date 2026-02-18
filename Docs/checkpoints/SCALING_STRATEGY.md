@@ -1,11 +1,5 @@
 # Document 8: `SCALING_STRATEGY.md`
 
-Copy this into:
-
-```
-docs/SCALING_STRATEGY.md
-```
-
 ---
 
 # Inventory Alert System
