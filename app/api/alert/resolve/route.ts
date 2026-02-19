@@ -1,6 +1,6 @@
 // app/api/alert/resolve/route.ts
 import { NextResponse } from "next/server";
-import { resolveAlertById } from "@/lib/sheets";
+import { resolveAlertById } from "@/lib/sheets-core";
 
 export const runtime = "nodejs";
 

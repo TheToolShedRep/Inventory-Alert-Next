@@ -263,13 +263,15 @@ export async function upsertCatalogRow(params: CatalogUpsertInput) {
 
 /**
  * Returns smart defaults from Catalog for a UPC:
- * - default_location
- * - preferred_vendor
+ * - productName (from product_name column)
+ * - defaultLocation (from default_location column)
+ * - preferredVendor (from preferred_vendor column)
  *
  * NOTE:
  * We read the header row and find the column indexes dynamically so your sheet can move columns.
  */
 export async function getCatalogDefaultsByUpc(upc: string): Promise<{
+  productName?: string;
   defaultLocation?: "Kitchen" | "Front";
   preferredVendor?: string;
 }> {
@@ -288,6 +290,9 @@ export async function getCatalogDefaultsByUpc(upc: string): Promise<{
 
   // Find columns by header labels (snake_case per your sheet plan)
   const upcIdx = header.findIndex((h) => h.toLowerCase() === "upc");
+  const productNameIdx = header.findIndex(
+    (h) => h.toLowerCase() === "product_name",
+  );
   const defaultLocIdx = header.findIndex(
     (h) => h.toLowerCase() === "default_location",
   );
@@ -302,8 +307,12 @@ export async function getCatalogDefaultsByUpc(upc: string): Promise<{
     const rowUpc = (row[upcIdx] || "").toString().trim();
     if (rowUpc !== upc) continue;
 
+    const productName =
+      productNameIdx >= 0 ? (row[productNameIdx] || "").toString().trim() : "";
+
     const defaultLoc =
       defaultLocIdx >= 0 ? (row[defaultLocIdx] || "").toString().trim() : "";
+
     const vendor =
       vendorIdx >= 0 ? (row[vendorIdx] || "").toString().trim() : "";
 
@@ -315,6 +324,7 @@ export async function getCatalogDefaultsByUpc(upc: string): Promise<{
           : undefined;
 
     return {
+      productName: productName || undefined,
       defaultLocation: normalizedLoc,
       preferredVendor: vendor || undefined,
     };

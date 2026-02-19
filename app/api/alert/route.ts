@@ -1,6 +1,6 @@
 // app/api/alert/route.ts
 import { NextResponse } from "next/server";
-import { logAlertToSheet } from "@/lib/sheets";
+import { logAlertToSheet } from "@/lib/sheets-core";
 import { sendOneSignalPush } from "@/lib/onesignal";
 import { sendAlertEmail } from "@/lib/email";
 import { getSubscriberEmails } from "@/lib/subscribers";

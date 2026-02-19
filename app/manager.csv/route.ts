@@ -1,6 +1,6 @@
 // app/manager.csv/route.ts
 import { NextResponse } from "next/server";
-import { getTodayManagerAlerts } from "@/lib/sheets";
+import { getTodayManagerAlerts } from "@/lib/sheets-core";
 import { csvEscape } from "@/lib/utils";
 
 export const runtime = "nodejs";
@@ -39,7 +39,7 @@ export async function GET() {
           csvEscape(a.alertId),
           csvEscape(a.canceledAt),
           csvEscape(a.resolvedAt), // ✅ NEW
-        ].join(",")
+        ].join(","),
       ),
     ];
 
@@ -58,7 +58,7 @@ export async function GET() {
     console.error("GET /manager.csv failed:", e);
     return NextResponse.json(
       { ok: false, error: String(e?.message || e) },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

@@ -1,6 +1,6 @@
 // app/api/health/sheets/route.ts
 import { NextResponse } from "next/server";
-import { getAllAlerts } from "@/lib/sheets";
+import { getAllAlerts } from "@/lib/sheets-core";
 
 export async function GET() {
   const started = Date.now();

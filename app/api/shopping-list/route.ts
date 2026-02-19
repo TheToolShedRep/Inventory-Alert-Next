@@ -1,23 +1,33 @@
+// app/api/shopping-list/route.ts
 import { NextResponse } from "next/server";
-import { readTabAsObjects } from "@/lib/sheets/read";
+import { getShoppingList, getBusinessDateNY } from "@/lib/sheets-core";
 
-function norm(v: any) {
-  return String(v ?? "").trim();
-}
+export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(req: Request) {
   const started = Date.now();
 
-  const data = await readTabAsObjects("Shopping_List");
+  try {
+    const url = new URL(req.url);
+    const includeHidden = url.searchParams.get("includeHidden") === "1";
 
-  // Optional: filter out empty rows
-  const rows = (data.rows || []).filter((r: any) => norm(r["upc"]));
+    const businessDate = getBusinessDateNY();
+    const rows = await getShoppingList({ includeHidden });
 
-  return NextResponse.json({
-    ok: true,
-    scope: "shopping-list",
-    ms: Date.now() - started,
-    count: rows.length,
-    rows,
-  });
+    return NextResponse.json({
+      ok: true,
+      scope: "shopping-list",
+      businessDate,
+      includeHidden,
+      ms: Date.now() - started,
+      count: rows.length,
+      rows,
+    });
+  } catch (err: any) {
+    console.error("❌ /api/shopping-list error:", err);
+    return NextResponse.json(
+      { ok: false, error: "Failed to load shopping list" },
+      { status: 500 },
+    );
+  }
 }

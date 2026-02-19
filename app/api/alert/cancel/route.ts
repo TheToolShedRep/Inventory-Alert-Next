@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { cancelAlertById } from "@/lib/sheets";
+import { cancelAlertById } from "@/lib/sheets-core";
 
 export async function POST(req: NextRequest) {
   try {
@@ -9,7 +9,7 @@ export async function POST(req: NextRequest) {
     if (!alertId) {
       return new Response(
         JSON.stringify({ ok: false, error: "Missing alertId" }),
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     if (!success) {
       return new Response(
         JSON.stringify({ ok: false, error: "Alert not found" }),
-        { status: 404 }
+        { status: 404 },
       );
     }
 

@@ -1,6 +1,6 @@
 // app/api/health/alerts/route.ts
 import { NextResponse } from "next/server";
-import { getTodayAlerts } from "@/lib/sheets";
+import { getTodayAlerts } from "@/lib/sheets-core";
 
 export const runtime = "nodejs";
 
