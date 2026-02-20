@@ -1,9 +1,20 @@
 // app/api/inventory/reorder-email/route.ts
 import { NextResponse } from "next/server";
+import { google } from "googleapis";
+import crypto from "crypto";
+
 import { readTabAsObjects } from "@/lib/sheets/read";
 import { sendAlertEmail } from "@/lib/email";
 import { requireInternalKey } from "@/lib/auth/internal";
+import { getBusinessDateNY, getShoppingList } from "@/lib/sheets-core";
 
+export const runtime = "nodejs";
+
+/**
+ * ============================
+ * Small helpers
+ * ============================
+ */
 function norm(v: any) {
   return String(v ?? "").trim();
 }
@@ -16,6 +27,183 @@ function toNumber(v: any) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function formatNY(dt: Date) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(dt);
+}
+
+/**
+ * ============================
+ * Google Sheets client (for logging)
+ * ============================
+ */
+const GOOGLE_SHEET_ID = process.env.SHEET_ID;
+const SERVICE_ACCOUNT_BASE64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64;
+
+function getSheetsClient() {
+  if (!GOOGLE_SHEET_ID) throw new Error("Missing env: SHEET_ID");
+  if (!SERVICE_ACCOUNT_BASE64)
+    throw new Error("Missing env: GOOGLE_SERVICE_ACCOUNT_JSON_BASE64");
+
+  const creds = JSON.parse(
+    Buffer.from(SERVICE_ACCOUNT_BASE64, "base64").toString("utf-8"),
+  );
+
+  const auth = new google.auth.GoogleAuth({
+    credentials: creds,
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+  });
+
+  return google.sheets({ version: "v4", auth });
+}
+
+/**
+ * Header-driven append to Reorder_Email_Log
+ * Expected headers:
+ * timestamp | business_date | items | recipients | actor | request_id | items_hash
+ */
+async function appendReorderEmailLogRow(input: {
+  timestamp: string;
+  business_date: string;
+  items: number;
+  recipients: number;
+  actor: string;
+  request_id: string;
+  items_hash: string;
+}) {
+  const sheets = getSheetsClient();
+
+  // Read header row
+  const headerRes = await sheets.spreadsheets.values.get({
+    spreadsheetId: GOOGLE_SHEET_ID!,
+    range: `Reorder_Email_Log!1:1`,
+  });
+
+  const rawHeaders = (headerRes.data.values?.[0] || []).map((h: any) =>
+    String(h ?? "").trim(),
+  );
+
+  const indexByHeader = new Map<string, number>();
+  rawHeaders.forEach((h: string, i: number) => {
+    if (!h) return;
+    indexByHeader.set(h.toLowerCase(), i);
+  });
+
+  const required = [
+    "timestamp",
+    "business_date",
+    "items",
+    "recipients",
+    "actor",
+    "request_id",
+    "items_hash",
+  ];
+
+  const missing = required.filter((h) => !indexByHeader.has(h));
+  if (missing.length) {
+    throw new Error(
+      `Reorder_Email_Log missing headers: ${missing.join(
+        ", ",
+      )}. Found: ${rawHeaders.join(" | ")}`,
+    );
+  }
+
+  // Align row to whatever header layout exists on sheet
+  const row: any[] = new Array(rawHeaders.length).fill("");
+
+  row[indexByHeader.get("timestamp")!] = input.timestamp;
+  row[indexByHeader.get("business_date")!] = input.business_date;
+  row[indexByHeader.get("items")!] = String(input.items);
+  row[indexByHeader.get("recipients")!] = String(input.recipients);
+  row[indexByHeader.get("actor")!] = input.actor;
+  row[indexByHeader.get("request_id")!] = input.request_id;
+  row[indexByHeader.get("items_hash")!] = input.items_hash;
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: GOOGLE_SHEET_ID!,
+    range: `Reorder_Email_Log!A1`,
+    valueInputOption: "USER_ENTERED",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: { values: [row] },
+  });
+}
+
+/**
+ * Read log and decide if we should send.
+ * Spam resistance:
+ * - Default: once per NY business day
+ * - Cooldown: blocks repeated sends within N minutes (even if force is not used)
+ * - force=1 bypasses "already sent today", but still respects cooldown unless force=2
+ */
+async function shouldSendReorderEmail(opts: {
+  businessDate: string;
+  cooldownMinutes: number;
+  forceLevel: 0 | 1 | 2;
+}) {
+  // Read via your existing helper (header-driven objects)
+  const log = await readTabAsObjects("Reorder_Email_Log");
+
+  const rows = (log.rows || []).map((r: any) => ({
+    timestamp: norm(r["timestamp"]),
+    business_date: norm(r["business_date"]),
+    items_hash: norm(r["items_hash"]),
+  }));
+
+  const now = new Date();
+  const cutoffMs = opts.cooldownMinutes * 60 * 1000;
+
+  // Find most recent send (any day)
+  let lastSentAt: Date | null = null;
+  let lastBusinessDate: string | null = null;
+
+  for (const r of rows) {
+    const t = Date.parse(r.timestamp);
+    if (Number.isNaN(t)) continue;
+    const d = new Date(t);
+    if (!lastSentAt || d.getTime() > lastSentAt.getTime()) {
+      lastSentAt = d;
+      lastBusinessDate = r.business_date || null;
+    }
+  }
+
+  // Cooldown check (applies unless force=2)
+  if (lastSentAt && opts.forceLevel < 2) {
+    const age = now.getTime() - lastSentAt.getTime();
+    if (age >= 0 && age < cutoffMs) {
+      return {
+        okToSend: false as const,
+        reason: "cooldown" as const,
+        lastSentAtISO: lastSentAt.toISOString(),
+        lastBusinessDate,
+      };
+    }
+  }
+
+  // Once-per-day lock (bypassable by force>=1)
+  const sentToday = rows.some((r) => r.business_date === opts.businessDate);
+  if (sentToday && opts.forceLevel === 0) {
+    return {
+      okToSend: false as const,
+      reason: "already_sent_today" as const,
+      lastSentAtISO: lastSentAt?.toISOString() ?? null,
+      lastBusinessDate,
+    };
+  }
+
+  return {
+    okToSend: true as const,
+    reason: "ok" as const,
+    lastSentAtISO: lastSentAt?.toISOString() ?? null,
+    lastBusinessDate,
+  };
+}
+
 export async function GET(req: Request) {
   const deny = requireInternalKey(req);
   if (deny) return deny;
@@ -23,14 +211,47 @@ export async function GET(req: Request) {
   const started = Date.now();
 
   try {
-    const [subs, list] = await Promise.all([
-      readTabAsObjects("Subscribers"),
-      readTabAsObjects("Shopping_List"),
-    ]);
+    const url = new URL(req.url);
 
-    const emails = subs.rows
-      .map((r) => norm(r["email"]))
-      .filter((e) => e.includes("@"));
+    // force=1 => bypass "already sent today"
+    // force=2 => bypass "already sent today" + bypass cooldown
+    const forceParam = norm(url.searchParams.get("force"));
+    const forceLevel: 0 | 1 | 2 =
+      forceParam === "2" ? 2 : forceParam === "1" ? 1 : 0;
+
+    const cooldownMinutes = Math.max(
+      1,
+      Number(url.searchParams.get("cooldownMinutes") || 15),
+    );
+
+    const businessDate = getBusinessDateNY();
+
+    // Spam resistance gate (Sheets-backed)
+    const gate = await shouldSendReorderEmail({
+      businessDate,
+      cooldownMinutes,
+      forceLevel,
+    });
+
+    if (!gate.okToSend) {
+      return NextResponse.json({
+        ok: true,
+        scope: "reorder-email",
+        skipped: true,
+        reason: gate.reason,
+        businessDate,
+        cooldownMinutes,
+        last_sent_at: gate.lastSentAtISO,
+        last_business_date: gate.lastBusinessDate,
+        ms: Date.now() - started,
+      });
+    }
+
+    // Subscribers (recipient list)
+    const subs = await readTabAsObjects("Subscribers");
+    const emails = (subs.rows || [])
+      .map((r: any) => norm(r["email"]))
+      .filter((e: string) => e.includes("@"));
 
     if (emails.length === 0) {
       return NextResponse.json(
@@ -43,31 +264,44 @@ export async function GET(req: Request) {
       );
     }
 
-    const items = list.rows.map((r) => ({
-      upc: norm(r["upc"]),
-      product_name: norm(r["product_name"]),
-      on_hand: toNumber(r["on_hand_base_units"]),
-      base_unit: norm(r["base_unit"]) || "each",
-      reorder_point: toNumber(r["reorder_point"]),
-      par_level: toNumber(r["par_level"]),
-      qty_to_order: toNumber(r["qty_to_order_base_units"]),
-      preferred_vendor: norm(r["preferred_vendor"]),
-      default_location: norm(r["default_location"]),
-      note: norm(r["note"]),
+    /**
+     * IMPORTANT:
+     * Use getShoppingList() so the email matches /api/shopping-list.
+     * This applies hide rules from Shopping_Actions (dismiss/undo/purchased).
+     */
+    const list = await getShoppingList({ includeHidden: false });
+
+    const items = (list || []).map((r: any) => ({
+      upc: norm(r["upc"] ?? r.upc),
+      product_name: norm(r["product_name"] ?? r.product_name),
+      on_hand: toNumber(r["on_hand_base_units"] ?? r.on_hand_base_units),
+      base_unit: norm(r["base_unit"] ?? r.base_unit) || "each",
+      reorder_point: toNumber(r["reorder_point"] ?? r.reorder_point),
+      par_level: toNumber(r["par_level"] ?? r.par_level),
+      qty_to_order: toNumber(
+        r["qty_to_order_base_units"] ?? r.qty_to_order_base_units,
+      ),
+      preferred_vendor: norm(r["preferred_vendor"] ?? r.preferred_vendor),
+      default_location: norm(r["default_location"] ?? r.default_location),
+      note: norm(r["note"] ?? r.note),
     }));
 
     if (items.length === 0) {
+      // Still log a “0 items” send? Usually no — we skip without logging.
       return NextResponse.json({
         ok: true,
         scope: "reorder-email",
         message: "No items flagged. Nothing emailed.",
         emailed_to: 0,
         items: 0,
+        businessDate,
         ms: Date.now() - started,
       });
     }
 
-    const subject = `Shopping List (${items.length} item${items.length === 1 ? "" : "s"})`;
+    const subject = `Shopping List (${items.length} item${
+      items.length === 1 ? "" : "s"
+    })`;
 
     const rowsHtml = items
       .map((it) => {
@@ -88,25 +322,55 @@ export async function GET(req: Request) {
       })
       .join("");
 
+    const requestId = crypto.randomUUID();
+
+    // Hash to help you detect duplicates / compare sends
+    const itemsHash = crypto
+      .createHash("sha256")
+      .update(
+        items
+          .map((i) => `${i.upc}:${i.qty_to_order}`)
+          .sort()
+          .join("|"),
+      )
+      .digest("hex")
+      .slice(0, 16);
+
     const html = `
       <h2>Shopping List</h2>
-      <p><strong>Generated:</strong> ${new Date().toLocaleString()}</p>
+      <p><strong>Business date (NY):</strong> ${businessDate}</p>
+      <p><strong>Generated (NY):</strong> ${formatNY(new Date())}</p>
       <ul>${rowsHtml}</ul>
+      <p style="opacity:0.7;">Request: ${requestId} • Hash: ${itemsHash}</p>
       <p>— Inventory Alert System</p>
     `;
 
-    // ✅ ONE request to Resend (prevents 2 req/s rate limit)
+    // Send email (single provider call)
     const sendRes = await sendAlertEmail({
-      to: emails, // <-- array is supported by your lib/email.ts
+      to: emails,
       subject,
       html,
+    });
+
+    // Log send (Sheets-backed spam resistance)
+    await appendReorderEmailLogRow({
+      timestamp: new Date().toISOString(),
+      business_date: businessDate,
+      items: items.length,
+      recipients: emails.length,
+      actor: "internal_key",
+      request_id: requestId,
+      items_hash: itemsHash,
     });
 
     return NextResponse.json({
       ok: true,
       scope: "reorder-email",
+      businessDate,
       emailed_to: emails.length,
       items: items.length,
+      request_id: requestId,
+      items_hash: itemsHash,
       send_result: sendRes,
       ms: Date.now() - started,
     });

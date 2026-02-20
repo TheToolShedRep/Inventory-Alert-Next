@@ -294,3 +294,63 @@ curl -s -X POST "http://localhost:3000/api/shopping/action" \
  -d '{"upc":"TURKEY_SAUSAGE_PATTY","action":"undo","note":"undo test"}'
 
 curl -s "http://localhost:3000/api/shopping-list" | python -m json.tool
+
+# Testing email pipeline
+
+BASE="https://www.inventory.alert.cbq.thetoolshed.app"
+
+curl -s -i "$BASE/api/inventory/reorder-email" | head -n 30
+
+# If that endpoint requires the internal key, use
+
+curl -s -i "$BASE/api/inventory/reorder-email" \
+ -H "x-api-key: $INTERNAL_API_KEY" | head -n 60
+
+# Validate email content matches the list
+
+curl -s "$BASE/api/shopping-list" | python -m json.tool
+
+# If the endpoint doesn’t exist / 404
+
+curl -s -i "$BASE/api/inventory/reorder-check" | head -n 30
+curl -s -i "$BASE/api/inventory/reorder-email" | head -n 30
+
+# Test reorder without internal key (security check)
+
+curl -s -i "$BASE/api/inventory/reorder-email" | head -n 60
+
+# Test with internal key
+
+curl -s -i "$BASE/api/inventory/reorder-email" \
+ -H "x-api-key: $INTERNAL_API_KEY" | head -n 60
+
+# Test the Dismiss function
+
+curl -s -X POST "$BASE/api/shopping/action" \
+ -H "Content-Type: application/json" \
+ -H "x-api-key: $INTERNAL_API_KEY" \
+ -d '{"upc":"EGG","action":"dismissed","note":"email test"}' | python -m json.tool
+
+# Test email shopping list alert's pipeline
+
+curl -s "$BASE/api/inventory/reorder-email" \
+ -H "x-api-key: $INTERNAL_API_KEY" | python -m json.tool
+
+# Test the Undo Shopping List funtion
+
+curl -s -X POST "$BASE/api/shopping/action" \
+ -H "Content-Type: application/json" \
+ -H "x-api-key: $INTERNAL_API_KEY" \
+ -d '{"upc":"EGG","action":"undo","note":"email test"}' | python -m json.tool
+
+# Test spam prevention
+
+curl -s "$BASE/api/inventory/reorder-email" -H "x-api-key: $INTERNAL_API_KEY"
+
+# bypass daily lock only
+
+curl -s "$BASE/api/inventory/reorder-email?force=1" -H "x-api-key: $INTERNAL_API_KEY"
+
+# bypass daily lock + cooldown (use sparingly)
+
+curl -s "$BASE/api/inventory/reorder-email?force=2" -H "x-api-key: $INTERNAL_API_KEY"
