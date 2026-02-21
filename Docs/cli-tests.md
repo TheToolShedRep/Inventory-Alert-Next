@@ -354,3 +354,34 @@ curl -s "$BASE/api/inventory/reorder-email?force=1" -H "x-api-key: $INTERNAL_API
 # bypass daily lock + cooldown (use sparingly)
 
 curl -s "$BASE/api/inventory/reorder-email?force=2" -H "x-api-key: $INTERNAL_API_KEY"
+
+# test in production
+
+curl -s "$BASE/api/inventory/reorder-email" \
+ -H "x-api-key: $INTERNAL_API_KEY" | python -m json.tool
+
+curl -s "$BASE/api/inventory/reorder-email" \
+ -H "x-api-key: $INTERNAL_API_KEY" | python -m json.tool
+
+# What we expect after deploy
+
+{
+"ok": true,
+"scope": "reorder-email",
+"businessDate": "...",
+"emailed_to": 7,
+"items": 5,
+"request_id": "...",
+"items_hash": "...",
+...
+}
+
+# Second call (immediately after)
+
+{
+"ok": true,
+"scope": "reorder-email",
+"skipped": true,
+"reason": "cooldown",
+...
+}
