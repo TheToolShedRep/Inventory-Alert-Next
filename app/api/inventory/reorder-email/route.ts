@@ -79,7 +79,6 @@ async function appendReorderEmailLogRow(input: {
 }) {
   const sheets = getSheetsClient();
 
-  // Read header row
   const headerRes = await sheets.spreadsheets.values.get({
     spreadsheetId: GOOGLE_SHEET_ID!,
     range: `Reorder_Email_Log!1:1`,
@@ -114,7 +113,6 @@ async function appendReorderEmailLogRow(input: {
     );
   }
 
-  // Align row to whatever header layout exists on sheet
   const row: any[] = new Array(rawHeaders.length).fill("");
 
   row[indexByHeader.get("timestamp")!] = input.timestamp;
@@ -146,7 +144,6 @@ async function shouldSendReorderEmail(opts: {
   cooldownMinutes: number;
   forceLevel: 0 | 1 | 2;
 }) {
-  // Read via your existing helper (header-driven objects)
   const log = await readTabAsObjects("Reorder_Email_Log");
 
   const rows = (log.rows || []).map((r: any) => ({
@@ -158,7 +155,6 @@ async function shouldSendReorderEmail(opts: {
   const now = new Date();
   const cutoffMs = opts.cooldownMinutes * 60 * 1000;
 
-  // Find most recent send (any day)
   let lastSentAt: Date | null = null;
   let lastBusinessDate: string | null = null;
 
@@ -172,7 +168,6 @@ async function shouldSendReorderEmail(opts: {
     }
   }
 
-  // Cooldown check (applies unless force=2)
   if (lastSentAt && opts.forceLevel < 2) {
     const age = now.getTime() - lastSentAt.getTime();
     if (age >= 0 && age < cutoffMs) {
@@ -185,7 +180,6 @@ async function shouldSendReorderEmail(opts: {
     }
   }
 
-  // Once-per-day lock (bypassable by force>=1)
   const sentToday = rows.some((r) => r.business_date === opts.businessDate);
   if (sentToday && opts.forceLevel === 0) {
     return {
@@ -213,6 +207,9 @@ export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
 
+    // ✅ test=1 means: show full merged list (includeHidden=true) so testing doesn't get fooled by state
+    const testMode = url.searchParams.get("test") === "1";
+
     // force=1 => bypass "already sent today"
     // force=2 => bypass "already sent today" + bypass cooldown
     const forceParam = norm(url.searchParams.get("force"));
@@ -226,7 +223,6 @@ export async function GET(req: Request) {
 
     const businessDate = getBusinessDateNY();
 
-    // Spam resistance gate (Sheets-backed)
     const gate = await shouldSendReorderEmail({
       businessDate,
       cooldownMinutes,
@@ -243,11 +239,11 @@ export async function GET(req: Request) {
         cooldownMinutes,
         last_sent_at: gate.lastSentAtISO,
         last_business_date: gate.lastBusinessDate,
+        test: testMode,
         ms: Date.now() - started,
       });
     }
 
-    // Subscribers (recipient list)
     const subs = await readTabAsObjects("Subscribers");
     const emails = (subs.rows || [])
       .map((r: any) => norm(r["email"]))
@@ -266,10 +262,10 @@ export async function GET(req: Request) {
 
     /**
      * IMPORTANT:
-     * Use getShoppingList() so the email matches /api/shopping-list.
-     * This applies hide rules from Shopping_Actions (dismiss/undo/purchased).
+     * test=1 => includeHidden=true so testing always shows the full merged list.
+     * normal => includeHidden=false (real behavior).
      */
-    const list = await getShoppingList({ includeHidden: false });
+    const list = await getShoppingList({ includeHidden: testMode });
 
     const items = (list || []).map((r: any) => ({
       upc: norm(r["upc"] ?? r.upc),
@@ -287,7 +283,6 @@ export async function GET(req: Request) {
     }));
 
     if (items.length === 0) {
-      // Still log a “0 items” send? Usually no — we skip without logging.
       return NextResponse.json({
         ok: true,
         scope: "reorder-email",
@@ -295,11 +290,13 @@ export async function GET(req: Request) {
         emailed_to: 0,
         items: 0,
         businessDate,
+        test: testMode,
         ms: Date.now() - started,
       });
     }
 
-    const subject = `Shopping List (${items.length} item${
+    const subjectPrefix = testMode ? "[TEST] " : "";
+    const subject = `${subjectPrefix}Shopping List (${items.length} item${
       items.length === 1 ? "" : "s"
     })`;
 
@@ -324,7 +321,6 @@ export async function GET(req: Request) {
 
     const requestId = crypto.randomUUID();
 
-    // Hash to help you detect duplicates / compare sends
     const itemsHash = crypto
       .createHash("sha256")
       .update(
@@ -337,7 +333,7 @@ export async function GET(req: Request) {
       .slice(0, 16);
 
     const html = `
-      <h2>Shopping List</h2>
+      <h2>${testMode ? "Shopping List (TEST MODE)" : "Shopping List"}</h2>
       <p><strong>Business date (NY):</strong> ${businessDate}</p>
       <p><strong>Generated (NY):</strong> ${formatNY(new Date())}</p>
       <ul>${rowsHtml}</ul>
@@ -345,20 +341,18 @@ export async function GET(req: Request) {
       <p>— Inventory Alert System</p>
     `;
 
-    // Send email (single provider call)
     const sendRes = await sendAlertEmail({
       to: emails,
       subject,
       html,
     });
 
-    // Log send (Sheets-backed spam resistance)
     await appendReorderEmailLogRow({
       timestamp: new Date().toISOString(),
       business_date: businessDate,
       items: items.length,
       recipients: emails.length,
-      actor: "internal_key",
+      actor: testMode ? "internal_key_test" : "internal_key",
       request_id: requestId,
       items_hash: itemsHash,
     });
@@ -372,6 +366,7 @@ export async function GET(req: Request) {
       request_id: requestId,
       items_hash: itemsHash,
       send_result: sendRes,
+      test: testMode,
       ms: Date.now() - started,
     });
   } catch (e: any) {
