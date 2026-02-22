@@ -385,3 +385,312 @@ curl -s "$BASE/api/inventory/reorder-email" \
 "reason": "cooldown",
 ...
 }
+
+BASE="https://www.inventory.alert.cbq.thetoolshed.app"
+
+# 1) Normal email (respects hide rules)
+
+curl -s "$BASE/api/inventory/reorder-email" -H "x-api-key: $INTERNAL_API_KEY" | python -m json.tool
+
+# 2) Test email (shows full list even if items were dismissed)
+
+curl -s "$BASE/api/inventory/reorder-email?test=1&force=2" -H "x-api-key: $INTERNAL_API_KEY" | python -m json.tool
+
+# 3) See what would be reset (no writes)
+
+curl -s "$BASE/api/shopping/reset-today?dryRun=1" -H "x-api-key: $INTERNAL_API_KEY" | python -m json.tool
+
+# 4) Reset hidden items for today (writes undo actions)
+
+curl -s "$BASE/api/shopping/reset-today" -H "x-api-key: $INTERNAL_API_KEY" | python -m json.tool
+
+# 5) Confirm list is back
+
+curl -s "$BASE/api/shopping-list" | python -m json.tool
+
+# Final testing phase
+
+1️⃣ Dismiss CROISSANT
+curl -s -X POST "$BASE/api/shopping/action" \
+ -H "Content-Type: application/json" \
+ -H "x-api-key: $INTERNAL_API_KEY" \
+ -d '{"upc":"CROISSANT","action":"dismissed","note":"live test"}'
+
+2️⃣ Confirm it disappears
+curl -s "$BASE/api/shopping-list" | python -m json.tool
+
+3️⃣ Send normal email
+curl -s "$BASE/api/inventory/reorder-email?force=2" \
+ -H "x-api-key: $INTERNAL_API_KEY" | python -m json.tool
+
+Should show items: 2
+
+4️⃣ Send test email
+curl -s "$BASE/api/inventory/reorder-email?test=1&force=2" \
+ -H "x-api-key: $INTERNAL_API_KEY" | python -m json.tool
+
+# $Base was enpty during testing
+
+## confirm your env vars are set
+
+echo "BASE=$BASE"
+echo "INTERNAL_API_KEY=${INTERNAL_API_KEY:0:6}..."
+
+### current results
+
+$ echo "BASE=$BASE"
+BASE=
+
+$ echo "INTERNAL_API_KEY=${INTERNAL_API_KEY:0:6}..."
+INTERNAL_API_KEY=...
+
+## If BASE= prints blank → that’s the whole issue.
+
+Set it (use your prod domain):
+
+export BASE="https://www.inventory.alert.cbq.thetoolshed.app"
+
+## This prints status + headers so we can see if it’s 200/401/502/HTML:
+
+curl -i "$BASE/api/shopping-list" | head -n 40
+
+### results
+
+$ curl -i "$BASE/api/shopping-list" | head -n 40
+curl: (3) URL rejected: Malformed input to a URL function
+
+## Re-run JSON commands and results
+
+$ curl -sS -X POST "$BASE/api/shopping/action" \
+
+> -H "Content-Type: application/json" \
+>  -H "x-api-key: $INTERNAL_API_KEY" \
+>  -d '{"upc":"CROISSANT","action":"dismissed","note":"manual lane test"}' \
+>  | python -m json.tool
+> 6ea74curl: (3) URL rejected: Malformed input to a URL function
+> Expecting value: line 1 column 1 (char 0)
+
+$ curl -sS -X POST "$BASE/api/shopping/action" \
+
+> -H "Content-Type: application/json" \
+>  -H "x-api-key: $INTERNAL_API_KEY" \
+>  -d '{"upc":"CROISSANT","action":"dismissed","note":"manual lane test"}' \
+>  | python -m json.tool
+> 6ea74curl: (3) URL rejected: Malformed input to a URL function
+> Expecting value: line 1 column 1 (char 0)
+
+# What’s happening
+
+BASE= is empty, so curl is literally trying to request "/api/shopping-list" (not a valid absolute URL).
+
+That’s why I get: curl: (3) URL rejected: Malformed input…
+
+Also: INTERNAL_API_KEY=... means the variable is either empty or not set in this terminal session (Git Bash shows ... when the substring is empty).
+
+So the system isn’t broken — your terminal session lost the env vars after outage.
+
+## The fix
+
+$ export INTERNAL_API_KEY="MY_INTERNAL_KEY"
+$ echo "BASE=$BASE" 
+$ echo "INTERNAL_API_KEY=${INTERNAL_API_KEY:0:6}..." (printed first 6 digits of my key)
+
+### Results
+
+The shopping list call were successful
+
+## Preventive measures
+
+Create a file called scripts/env.sh
+
+export BASE="https://www.inventory.alert.cbq.thetoolshed.app"
+export INTERNAL_API_KEY="MY_INTERNAL_KEY"
+
+#### Now, whenever there's an outage or a need for a new terminal I can source:
+
+source scripts/env.sh
+
+# Break Fix
+
+### Break
+
+I noticed the there was an item missing from the manual shopping list. The item was hidden by the current list
+
+### Fix
+
+I ran a curl command:
+
+ran: $curl -sS "$BASE/api/shopping-list?includeHidden=1" | python -m json.tool
+
+#### Results
+
+$ curl -sS "$BASE/api/shopping-list?includeHidden=1" | python -m json.tool
+{  
+ "ok": true,
+"scope": "shopping-list",
+"businessDate": "2026-02-22",
+"includeHidden": true,
+"ms": 441,
+"count": 3,
+"rows": [
+{
+"timestamp": "2026-02-21T17:26:54.961Z",
+"upc": "CROISSANT",
+"product_name": "Croissant",
+"qty_to_order_base_units": "4",
+"note": ""
+},
+{
+"timestamp": "2026-02-21T17:26:54.961Z",
+"upc": "EGG",
+"product_name": "egg",
+"qty_to_order_base_units": "2",
+"timestamp": "2026-02-21T17:26:54.961Z",
+"upc": "CROISSANT",
+"product_name": "Croissant",
+"qty_to_order_base_units": "4",
+"note": ""
+},
+{
+"timestamp": "2026-02-21T17:26:54.961Z",
+"upc": "EGG",
+"product_name": "egg",
+"qty_to_order_base_units": "2",
+"upc": "CROISSANT",
+"product_name": "Croissant",
+"qty_to_order_base_units": "4",
+"note": ""
+},
+{
+"timestamp": "2026-02-21T17:26:54.961Z",
+"upc": "EGG",
+"product_name": "egg",
+"qty_to_order_base_units": "2",
+"product_name": "Croissant",
+"qty_to_order_base_units": "4",
+"note": ""
+},
+{
+"timestamp": "2026-02-21T17:26:54.961Z",
+"upc": "EGG",
+"product_name": "egg",
+"qty_to_order_base_units": "2",
+"qty_to_order_base_units": "4",
+"note": ""
+},
+{
+"timestamp": "2026-02-21T17:26:54.961Z",
+"upc": "EGG",
+"product_name": "egg",
+"qty_to_order_base_units": "2",
+"note": ""
+},
+{
+"timestamp": "2026-02-21T17:26:54.961Z",
+"upc": "EGG",
+"product_name": "egg",
+"qty_to_order_base_units": "2",
+},
+{
+"timestamp": "2026-02-21T17:26:54.961Z",
+"upc": "EGG",
+"product_name": "egg",
+"qty_to_order_base_units": "2",
+"timestamp": "2026-02-21T17:26:54.961Z",
+"upc": "EGG",
+"product_name": "egg",
+"qty_to_order_base_units": "2",
+"upc": "EGG",
+"product_name": "egg",
+"qty_to_order_base_units": "2",
+"product_name": "egg",
+"qty_to_order_base_units": "2",
+"note": ""
+},
+{
+"note": ""
+},
+{
+"timestamp": "2026-02-22T11:15:57.501Z",
+"upc": "TURKEY_SAUSAGE_PATTY",
+{
+"timestamp": "2026-02-22T11:15:57.501Z",
+"upc": "TURKEY_SAUSAGE_PATTY",
+"timestamp": "2026-02-22T11:15:57.501Z",
+"upc": "TURKEY_SAUSAGE_PATTY",
+"product_name": "Turkey Sausage Patty",
+"on_hand_base_units": "39",
+"upc": "TURKEY_SAUSAGE_PATTY",
+"product_name": "Turkey Sausage Patty",
+"on_hand_base_units": "39",
+"product_name": "Turkey Sausage Patty",
+"on_hand_base_units": "39",
+"on_hand_base_units": "39",
+"base_unit": "each",
+"base_unit": "each",
+"reorder_point": "40",
+"par_level": "",
+"qty_to_order_base_units": "1",
+"preferred_vendor": "",
+"default_location": "",
+"note": ""
+}
+]
+}
+
+#### Bring item to same day list
+
+curl -sS -X POST "$BASE/api/shopping/action" \
+ -H "Content-Type: application/json" \
+ -H "x-api-key: $INTERNAL_API_KEY" \
+ -d '{"upc":"CROISSANT","action":"undo","note":"bring back today"}' \
+| python -m json.tool
+
+curl -sS "$BASE/api/shopping-list" | python -m json.tool
+
+#### Why did the list have duplicates
+
+The copy from other site and docs became currupted
+
+$ curl -sS "$BASE/api/shopping-list?includeHidden=1" -o /tmp/out.json && python -m json.tool /tmp/out.json >
+/tmp/pretty.json && wc -c /tmp/out.json && head -n 80 /tmp/pretty.json
+625 /tmp/out.json
+{
+"ok": true,
+"scope": "shopping-list",
+"businessDate": "2026-02-22",
+"includeHidden": true,
+"ms": 254,
+"count": 3,
+"rows": [
+{
+"timestamp": "2026-02-21T17:26:54.961Z",
+"upc": "CROISSANT",
+"product_name": "Croissant",
+"qty_to_order_base_units": "4",
+"note": ""
+},
+{
+"timestamp": "2026-02-21T17:26:54.961Z",
+"upc": "EGG",
+"product_name": "egg",
+"qty_to_order_base_units": "2",
+"note": ""
+},
+{
+"timestamp": "2026-02-22T11:15:57.501Z",
+"upc": "TURKEY_SAUSAGE_PATTY",
+"product_name": "Turkey Sausage Patty",
+"on_hand_base_units": "39",
+"base_unit": "each",
+"reorder_point": "40",
+"par_level": "",
+"qty_to_order_base_units": "1",
+"preferred_vendor": "",
+"default_location": "",
+"note": ""
+}
+]
+}
+
+#### this confirs it was coyp/paste noise

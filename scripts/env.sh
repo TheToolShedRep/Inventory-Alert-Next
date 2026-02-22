@@ -1,0 +1,2 @@
+export BASE="https://www.inventory.alert.cbq.thetoolshed.app"
+export INTERNAL_API_KEY=28c7dd73691936a7987dc91a2a03dbf5182b133a017aeb1a2ee9965a59ebeccb

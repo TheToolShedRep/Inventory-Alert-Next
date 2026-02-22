@@ -46,3 +46,5 @@ service-account.json
 # Next folder
 .next
 
+# Internal key script
+script/*.sh
