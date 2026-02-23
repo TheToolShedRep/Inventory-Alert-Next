@@ -694,3 +694,88 @@ $ curl -sS "$BASE/api/shopping-list?includeHidden=1" -o /tmp/out.json && python 
 }
 
 #### this confirs it was coyp/paste noise
+
+# Testing after adding adjustment logic
+
+## Check current on-hand
+
+curl -sS "$BASE/api/inventory/on-hand?upc=EGG" | python -m json.tool
+{
+"ok": true,
+"scope": "inventory-on-hand",
+"upc": "EGG",
+"base_unit": "each",
+"purchased_base_units": 180,
+"used_base_units": 56,
+"adjustment_base_units": -3,
+"on_hand_base_units": 121,
+"ms": 1556
+}
+
+## Post adjustment
+
+curl -sS -X POST "$BASE/api/inventory/adjust" \
+ -H "content-type: application/json" \
+ -H "x-api-key: $INTERNAL_API_KEY" \
+ -d '{"upc":"EGG","base_units_delta":-3,"adjustment_type":"count","reason":"count correction","actor":"tommy"}' \
+| python -m json.tool
+
+.tool;42b87c52-3e7f-44b1-a0d1-1f8b1c46ea74bash: url: command not found
+Expecting value: line 1 column 1 (char 0)
+
+## Re-check on-hand
+
+curl -sS "$BASE/api/inventory/on-hand?upc=EGG" | python -m json.tool
+
+$ curl -sS "$BASE/api/inventory/on-hand?upc=EGG" | python -m json.tool
+{
+"ok": true,
+"scope": "inventory-on-hand",
+"upc": "EGG",
+"base_unit": "each",
+"purchased_base_units": 180,
+"used_base_units": 56,
+"adjustment_base_units": -3,
+"on_hand_base_units": 121,
+"ms": 870
+}
+
+### the on-hand math is wired correctly
+
+first call proves it:
+
+- purchased = 180
+
+- used = 56
+
+- adjustments = -3
+
+on_hand = 180 − 56 − 3 = 121 (done)
+
+## Why the POST failed
+
+This part is just Git Bash paste/formatting
+
+### Fix
+
+API_KEY" -d "{\"upc\":\"EGG\",\"base_units_delta\":-3,\"adjustment_type\":\"count\",\"reason\":\"count correction\",\"actor\":\"tommy\"}" | python -m json.tool
+:\\"tommy\\"}" | python -m json.tool;42b87c52-3e7f-44b1-a0d1-1f8b1c46ea74{
+"ok": true,
+"scope": "inventory-adjust",
+"upc": "EGG",
+"base_units_delta": -3,
+"date": "(default business date)"
+}
+
+$ curl -sS "$BASE/api/inventory/on-hand?upc=EGG" | python -m json.tool
+{
+"ok": true,
+"scope": "inventory-on-hand",
+"upc": "EGG",
+"base_unit": "each",
+"purchased_base_units": 180,
+"used_base_units": 56,
+"adjustment_base_units": -6,
+"on_hand_base_units": 118,
+"ms": 985
+}
