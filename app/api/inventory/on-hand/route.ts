@@ -50,6 +50,7 @@ export async function GET(req: Request) {
     // Read tabs
     const purchases = await readTabAsObjects("Purchases");
     const usage = await readTabAsObjects("Inventory_Usage");
+    const adjustments = await readTabAsObjects("Inventory_Adjustments");
     const catalog = await readTabAsObjects("Catalog");
 
     // --- Purchases: sum base units added (lifetime) ---
@@ -87,6 +88,23 @@ export async function GET(req: Request) {
       usedBaseUnits += used;
     }
 
+    // --- Inventory_Adjustments: sum deltas (optionally filtered by date) ---
+    let adjustmentDelta = 0;
+
+    for (const r of adjustments.rows) {
+      const rowUpc = norm(r["upc"]);
+      if (rowUpc !== upc) continue;
+
+      // Optional date filter (same behavior as usage)
+      if (date) {
+        const rowDate = norm(r["date"]);
+        if (rowDate !== date) continue;
+      }
+
+      const delta = toNumber(r["base_units_delta"]);
+      adjustmentDelta += delta;
+    }
+
     // --- Catalog: base_unit (optional) ---
     let baseUnit = "each";
     for (const r of catalog.rows) {
@@ -98,7 +116,7 @@ export async function GET(req: Request) {
       break;
     }
 
-    const onHand = purchasedBaseUnits - usedBaseUnits;
+    const onHand = purchasedBaseUnits - usedBaseUnits + adjustmentDelta;
 
     return NextResponse.json({
       ok: true,
@@ -107,6 +125,7 @@ export async function GET(req: Request) {
       base_unit: baseUnit, // always a string
       purchased_base_units: purchasedBaseUnits,
       used_base_units: usedBaseUnits,
+      adjustment_base_units: adjustmentDelta,
       on_hand_base_units: onHand,
       ...(date ? { date } : {}),
       ms: Date.now() - started,
