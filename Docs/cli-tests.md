@@ -524,8 +524,8 @@ ran: $curl -sS "$BASE/api/shopping-list?includeHidden=1" | python -m json.tool
 
 #### Results
 
-$ curl -sS "$BASE/api/shopping-list?includeHidden=1" | python -m json.tool
-{  
+````$ curl -sS "$BASE/api/shopping-list?includeHidden=1" | python -m json.tool
+{
  "ok": true,
 "scope": "shopping-list",
 "businessDate": "2026-02-22",
@@ -636,23 +636,23 @@ $ curl -sS "$BASE/api/shopping-list?includeHidden=1" | python -m json.tool
 "note": ""
 }
 ]
-}
+}```
 
 #### Bring item to same day list
 
-curl -sS -X POST "$BASE/api/shopping/action" \
+```curl -sS -X POST "$BASE/api/shopping/action" \
  -H "Content-Type: application/json" \
  -H "x-api-key: $INTERNAL_API_KEY" \
  -d '{"upc":"CROISSANT","action":"undo","note":"bring back today"}' \
 | python -m json.tool
 
-curl -sS "$BASE/api/shopping-list" | python -m json.tool
+curl -sS "$BASE/api/shopping-list" | python -m json.tool```
 
 #### Why did the list have duplicates
 
 The copy from other site and docs became currupted
 
-$ curl -sS "$BASE/api/shopping-list?includeHidden=1" -o /tmp/out.json && python -m json.tool /tmp/out.json >
+```$ curl -sS "$BASE/api/shopping-list?includeHidden=1" -o /tmp/out.json && python -m json.tool /tmp/out.json >
 /tmp/pretty.json && wc -c /tmp/out.json && head -n 80 /tmp/pretty.json
 625 /tmp/out.json
 {
@@ -691,7 +691,7 @@ $ curl -sS "$BASE/api/shopping-list?includeHidden=1" -o /tmp/out.json && python 
 "note": ""
 }
 ]
-}
+}```
 
 #### this confirs it was coyp/paste noise
 
@@ -699,7 +699,7 @@ $ curl -sS "$BASE/api/shopping-list?includeHidden=1" -o /tmp/out.json && python 
 
 ## Check current on-hand
 
-curl -sS "$BASE/api/inventory/on-hand?upc=EGG" | python -m json.tool
+```curl -sS "$BASE/api/inventory/on-hand?upc=EGG" | python -m json.tool
 {
 "ok": true,
 "scope": "inventory-on-hand",
@@ -710,22 +710,22 @@ curl -sS "$BASE/api/inventory/on-hand?upc=EGG" | python -m json.tool
 "adjustment_base_units": -3,
 "on_hand_base_units": 121,
 "ms": 1556
-}
+}```
 
 ## Post adjustment
 
-curl -sS -X POST "$BASE/api/inventory/adjust" \
+```curl -sS -X POST "$BASE/api/inventory/adjust" \
  -H "content-type: application/json" \
  -H "x-api-key: $INTERNAL_API_KEY" \
  -d '{"upc":"EGG","base_units_delta":-3,"adjustment_type":"count","reason":"count correction","actor":"tommy"}' \
 | python -m json.tool
 
 .tool;42b87c52-3e7f-44b1-a0d1-1f8b1c46ea74bash: url: command not found
-Expecting value: line 1 column 1 (char 0)
+Expecting value: line 1 column 1 (char 0)```
 
 ## Re-check on-hand
 
-curl -sS "$BASE/api/inventory/on-hand?upc=EGG" | python -m json.tool
+```curl -sS "$BASE/api/inventory/on-hand?upc=EGG" | python -m json.tool
 
 $ curl -sS "$BASE/api/inventory/on-hand?upc=EGG" | python -m json.tool
 {
@@ -738,7 +738,7 @@ $ curl -sS "$BASE/api/inventory/on-hand?upc=EGG" | python -m json.tool
 "adjustment_base_units": -3,
 "on_hand_base_units": 121,
 "ms": 870
-}
+}```
 
 ### the on-hand math is wired correctly
 
@@ -758,7 +758,7 @@ This part is just Git Bash paste/formatting
 
 ### Fix
 
-API_KEY" -d "{\"upc\":\"EGG\",\"base_units_delta\":-3,\"adjustment_type\":\"count\",\"reason\":\"count correction\",\"actor\":\"tommy\"}" | python -m json.tool
+```API_KEY" -d "{\"upc\":\"EGG\",\"base_units_delta\":-3,\"adjustment_type\":\"count\",\"reason\":\"count correction\",\"actor\":\"tommy\"}" | python -m json.tool
 :\\"tommy\\"}" | python -m json.tool;42b87c52-3e7f-44b1-a0d1-1f8b1c46ea74{
 "ok": true,
 "scope": "inventory-adjust",
@@ -778,4 +778,5 @@ $ curl -sS "$BASE/api/inventory/on-hand?upc=EGG" | python -m json.tool
 "adjustment_base_units": -6,
 "on_hand_base_units": 118,
 "ms": 985
-}
+}```
+````
