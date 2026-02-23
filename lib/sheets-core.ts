@@ -117,11 +117,23 @@ export function getBusinessDateNY(): string {
 }
 
 /**
- * Generic helper: read a tab as header-driven objects.
- * - Header keys are normalized to lowercase
- * - Missing tab -> caller can catch() and treat as empty
+ * Normalize header keys so we can match:
+ * - "Reorder Point" => "reorder_point"
+ * - "reorder-point" => "reorder_point"
+ * - "reorder_point" => "reorder_point"
  */
-async function readTabObjects(tabName: string): Promise<any[]> {
+function normalizeHeaderKey(h: any): string {
+  return String(h ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_"); // spaces/dashes -> underscore
+}
+
+/**
+ * Read a tab as header-driven objects, with header normalization:
+ * - keys are normalized via normalizeHeaderKey
+ */
+async function readTabObjectsNormalized(tabName: string): Promise<any[]> {
   const sheets = getSheetsClient();
 
   const res = await sheets.spreadsheets.values.get({
@@ -132,12 +144,7 @@ async function readTabObjects(tabName: string): Promise<any[]> {
   const values = res.data.values || [];
   if (values.length <= 1) return [];
 
-  const headers = (values[0] || []).map((h: any) =>
-    String(h ?? "")
-      .trim()
-      .toLowerCase(),
-  );
-
+  const headers = (values[0] || []).map((h: any) => normalizeHeaderKey(h));
   const rows = values.slice(1);
 
   return rows.map((row: any[]) => {
@@ -145,6 +152,38 @@ async function readTabObjects(tabName: string): Promise<any[]> {
     for (let i = 0; i < headers.length; i++) obj[headers[i]] = row[i] ?? "";
     return obj;
   });
+}
+
+/**
+ * Try multiple tab names and return the first that exists (or [] if none exist).
+ * (Used for Option B Catalog enrichment)
+ */
+async function readFirstExistingTabObjects(
+  tabNames: string[],
+): Promise<{ tabName: string | null; rows: any[] }> {
+  for (const name of tabNames) {
+    try {
+      const rows = await readTabObjectsNormalized(name);
+      // If the sheet exists but is empty, that's still valid.
+      return { tabName: name, rows };
+    } catch {
+      // Tab doesn't exist or not accessible -> try next
+    }
+  }
+  return { tabName: null, rows: [] };
+}
+
+/**
+ * Safely read a value from an object using multiple possible keys.
+ * Returns "" if nothing found (or only whitespace).
+ */
+function pick(obj: any, keys: string[]): string {
+  for (const k of keys) {
+    const v = obj?.[k];
+    if (v !== undefined && v !== null && String(v).trim() !== "")
+      return String(v);
+  }
+  return "";
 }
 
 /**
@@ -356,7 +395,8 @@ export async function appendShoppingAction(input: {
     String(h ?? "").trim(),
   );
 
-  // Case-insensitive header index
+  // Case-insensitive header index (we keep this simple because Shopping_Actions
+  // is a controlled tab you own).
   const indexByHeader = new Map<string, number>();
   rawHeaders.forEach((h: string, i: number) => {
     const key = h.trim().toLowerCase();
@@ -426,18 +466,167 @@ async function getShoppingActions(): Promise<ShoppingActionRow[]> {
     .filter((r) => String(r.upc ?? "").length > 0);
 }
 
+export type InventoryAdjustmentRow = {
+  timestamp?: string; // ISO
+  date?: string; // YYYY-MM-DD (business date)
+  upc?: string;
+  adjustment_type?: string; // count | spoilage | waste | etc
+  base_units_delta?: any; // can be negative
+  reason?: string;
+  actor?: string;
+};
+
+/**
+ * ============================
+ * Inventory_Adjustments (ledger)
+ * ============================
+ * Expected headers (case-insensitive):
+ * timestamp | date | upc | adjustment_type | base_units_delta | reason | actor
+ *
+ * Append-only. Never overwrite.
+ */
+export async function appendInventoryAdjustment(input: {
+  // date is optional; default to business date NY
+  date?: string; // YYYY-MM-DD
+  upc: string;
+  base_units_delta: number; // can be negative
+  adjustment_type?: string;
+  reason?: string;
+  actor?: string;
+}) {
+  const sheets = getSheetsClient();
+
+  const date = String(input.date ?? getBusinessDateNY()).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new Error(
+      `Inventory adjustment date must be YYYY-MM-DD. Received: ${date}`,
+    );
+  }
+
+  const headerRes = await sheets.spreadsheets.values.get({
+    spreadsheetId: GOOGLE_SHEET_ID!,
+    range: `Inventory_Adjustments!1:1`,
+  });
+
+  const rawHeaders = (headerRes.data.values?.[0] || []).map((h: any) =>
+    String(h ?? "").trim(),
+  );
+
+  const indexByHeader = new Map<string, number>();
+  rawHeaders.forEach((h: string, i: number) => {
+    const key = h.trim().toLowerCase();
+    if (!key) return;
+    indexByHeader.set(key, i);
+  });
+
+  const required = [
+    "timestamp",
+    "date",
+    "upc",
+    "adjustment_type",
+    "base_units_delta",
+    "reason",
+    "actor",
+  ];
+
+  const missing = required.filter((h) => !indexByHeader.has(h));
+  if (missing.length) {
+    throw new Error(
+      `Inventory_Adjustments missing headers: ${missing.join(", ")}. Found: ${rawHeaders.join(
+        " | ",
+      )}`,
+    );
+  }
+
+  const row: any[] = new Array(rawHeaders.length).fill("");
+
+  row[indexByHeader.get("timestamp")!] = new Date().toISOString();
+  row[indexByHeader.get("date")!] = date;
+  row[indexByHeader.get("upc")!] = normUpc(input.upc);
+  row[indexByHeader.get("adjustment_type")!] = String(
+    input.adjustment_type ?? "adjust",
+  ).trim().toLowerCase;
+  row[indexByHeader.get("base_units_delta")!] = String(input.base_units_delta);
+  row[indexByHeader.get("reason")!] = input.reason ?? "";
+  row[indexByHeader.get("actor")!] = input.actor ?? "";
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: GOOGLE_SHEET_ID!,
+    range: `Inventory_Adjustments!A1`,
+    valueInputOption: "USER_ENTERED",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: { values: [row] },
+  });
+}
+
+/**
+ * Read Inventory_Adjustments as objects (normalized headers + normalized UPC).
+ * Optional date filter (YYYY-MM-DD). If provided, only that business date’s adjustments.
+ */
+export async function getInventoryAdjustments(opts?: {
+  date?: string; // YYYY-MM-DD
+}): Promise<InventoryAdjustmentRow[]> {
+  const dateFilter = String(opts?.date ?? "").trim();
+
+  const rows = await readTabObjectsNormalized("Inventory_Adjustments").catch(
+    () => [],
+  );
+
+  const normalized = rows
+    .map((r: any) => ({
+      ...r,
+      upc: normUpc(r.upc),
+    }))
+    .filter((r: any) => String(r.upc ?? "").length > 0);
+
+  if (!dateFilter) return normalized;
+
+  return normalized.filter(
+    (r: any) => String(r.date ?? "").trim() === dateFilter,
+  );
+}
+
+/**
+ * Convenience: sum adjustments by UPC (for a given date or all-time).
+ */
+export async function getAdjustmentDeltaByUpc(opts?: {
+  date?: string; // YYYY-MM-DD (business date)
+}): Promise<Map<string, number>> {
+  const adj = await getInventoryAdjustments({ date: opts?.date });
+  const map = new Map<string, number>();
+
+  for (const r of adj) {
+    const upc = normUpc(r.upc);
+    if (!upc) continue;
+
+    const n =
+      Number(
+        String((r as any).base_units_delta ?? "0").replace(/[^0-9.-]/g, ""),
+      ) || 0;
+
+    map.set(upc, (map.get(upc) || 0) + n);
+  }
+
+  return map;
+}
+
 /**
  * ============================
  * Shopping_List (computed) + Shopping_Manual merge + hide rules
+ * OPTION B: Catalog enrichment
  * ============================
  *
  * Tabs:
- * - Shopping_List (computed output from reorder-check)
+ * - Shopping_List   (computed output from reorder-check)
  * - Shopping_Manual (manual test lane)
  *
  * Merge policy:
  * - Dedupe by UPC
  * - Computed wins (manual is additive, not overriding real reorder results)
+ *
+ * Enrichment policy (Option B):
+ * - If a merged row is missing product_name/base_unit/reorder_point/etc,
+ *   fill from Catalog (if present).
  */
 export async function getShoppingList(opts?: {
   includeHidden?: boolean;
@@ -447,17 +636,90 @@ export async function getShoppingList(opts?: {
   // Read computed + manual in parallel.
   // If Shopping_Manual doesn't exist yet, treat as empty.
   const [computedRaw, manualRaw] = await Promise.all([
-    readTabObjects("Shopping_List"),
-    readTabObjects("Shopping_Manual").catch(() => []),
+    readTabObjectsNormalized("Shopping_List"),
+    readTabObjectsNormalized("Shopping_Manual").catch(() => []),
   ]);
+
+  /**
+   * --------
+   * OPTION B: Catalog enrich
+   * --------
+   * We try common tab names. If none exist, this becomes a no-op.
+   */
+  const catalogCandidates = [
+    "Catalog",
+    "CATALOG",
+    "Product_Catalog",
+    "Products",
+    "Inventory_Catalog",
+    "Items",
+  ];
+
+  const catalogRes = await readFirstExistingTabObjects(catalogCandidates);
+
+  const catalogByUpc = new Map<string, any>();
+  for (const r of catalogRes.rows) {
+    const upcVal = pick(r, ["upc", "sku", "plu", "item_code", "code", "id"]);
+    const upc = normUpc(upcVal);
+    if (!upc) continue;
+    if (!catalogByUpc.has(upc)) catalogByUpc.set(upc, r);
+  }
+
+  function enrichFromCatalog(row: ShoppingListRow): ShoppingListRow {
+    const upc = normUpc(row.upc);
+    const cat = catalogByUpc.get(upc);
+    if (!cat) return row;
+
+    return {
+      ...row,
+
+      // Fill-only if missing on the row
+      product_name:
+        String(row.product_name ?? "").trim() !== ""
+          ? row.product_name
+          : pick(cat, ["product_name", "name", "item_name", "product"]),
+
+      base_unit:
+        String(row.base_unit ?? "").trim() !== ""
+          ? row.base_unit
+          : pick(cat, ["base_unit", "unit", "uom", "size_unit"]),
+
+      reorder_point:
+        String(row.reorder_point ?? "").trim() !== ""
+          ? row.reorder_point
+          : pick(cat, [
+              "reorder_point",
+              "reorderpoint",
+              "reorder_level",
+              "reorder",
+            ]),
+
+      par_level:
+        String(row.par_level ?? "").trim() !== ""
+          ? row.par_level
+          : pick(cat, ["par_level", "par", "parlevel"]),
+
+      preferred_vendor:
+        String(row.preferred_vendor ?? "").trim() !== ""
+          ? row.preferred_vendor
+          : pick(cat, ["preferred_vendor", "vendor", "supplier"]),
+
+      default_location:
+        String(row.default_location ?? "").trim() !== ""
+          ? row.default_location
+          : pick(cat, ["default_location", "location", "default_loc", "loc"]),
+    };
+  }
 
   const computed: ShoppingListRow[] = computedRaw
     .map((r: any) => ({ ...r, upc: normUpc(r.upc) }))
-    .filter((r) => String(r.upc ?? "").length > 0);
+    .filter((r) => String(r.upc ?? "").length > 0)
+    .map(enrichFromCatalog);
 
   const manual: ShoppingListRow[] = manualRaw
     .map((r: any) => ({ ...r, upc: normUpc(r.upc) }))
-    .filter((r) => String(r.upc ?? "").length > 0);
+    .filter((r) => String(r.upc ?? "").length > 0)
+    .map(enrichFromCatalog);
 
   // Merge + dedupe by UPC (manual first, computed overwrites -> computed wins)
   const byUpc = new Map<string, ShoppingListRow>();
@@ -466,7 +728,7 @@ export async function getShoppingList(opts?: {
 
   let filtered = Array.from(byUpc.values());
 
-  // Hide rules: latest action wins per UPC for TODAY (unchanged)
+  // Hide rules: latest action wins per UPC for TODAY
   if (!includeHidden) {
     const today = getBusinessDateNY();
     const actions = await getShoppingActions();
@@ -499,7 +761,7 @@ export async function getShoppingList(opts?: {
     filtered = filtered.filter((r) => !hiddenUpcs.has(normUpc(r.upc)));
   }
 
-  // Sort by qty_to_order desc (unchanged)
+  // Sort by qty_to_order desc (optional)
   filtered.sort((a, b) => {
     const qa =
       Number(
