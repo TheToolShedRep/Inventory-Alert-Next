@@ -52,7 +52,7 @@
 
 - Confirm manual item remains
 
-### End of Day 1: Shopping list stable.
+### End of Day 1: Shopping list stable (Done).
 
 # DAY 2 — Adjustment Ledger (Reality Correction)
 
@@ -82,7 +82,7 @@ POST /api/inventory/adjust
 
 - Confirm on_hand updates correctly
 
-### End of Day 2: System can correct drift.
+### End of Day 2: System can correct drift (Done).
 
 # DAY 3 — Lock Reorder-Check Behavior
 

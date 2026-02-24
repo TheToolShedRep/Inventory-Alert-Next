@@ -1,3 +1,5 @@
+// app/api/inventory/reorder-check/route.ts
+
 import { NextResponse } from "next/server";
 import { readTabAsObjects } from "@/lib/sheets/read";
 import { overwriteTabValues } from "@/lib/sheets/overwriteTab";
@@ -37,11 +39,21 @@ export async function GET(req: Request) {
   const nowIso = new Date().toISOString();
 
   try {
-    const [catalog, purchases, usage] = await Promise.all([
+    // ✅ CHANGE #1: include Inventory_Adjustments AND capture it in destructuring
+    const [catalog, purchases, usage, adjustments] = await Promise.all([
       readTabAsObjects("Catalog"),
       readTabAsObjects("Purchases"),
       readTabAsObjects("Inventory_Usage"),
+      readTabAsObjects("Inventory_Adjustments"),
     ]);
+
+    // (Optional but recommended Day 3 safety)
+    // Fail loudly if inventory math is missing (so reorder-check can't lie)
+    if (!usage.rows || usage.rows.length === 0) {
+      throw new Error(
+        "Inventory_Usage is empty. Run /api/inventory-math/run?date=YYYY-MM-DD first (mode=replace recommended).",
+      );
+    }
 
     // Build quick lookup for Purchases sums per UPC
     const purchasedByUpc: Record<string, number> = {};
@@ -67,11 +79,29 @@ export async function GET(req: Request) {
       if (used > 0) usedByUpc[upc] = (usedByUpc[upc] || 0) + used;
     }
 
+    // ✅ CHANGE #2: build quick lookup for Adjustments sums per UPC (lifetime)
+    const adjByUpc: Record<string, number> = {};
+    for (const r of adjustments.rows) {
+      const upc = norm(r["upc"]);
+      if (!upc) continue;
+
+      const delta = toNumber(r["base_units_delta"]);
+      if (delta !== 0) adjByUpc[upc] = (adjByUpc[upc] || 0) + delta;
+    }
+
     // Generate reorder rows
     const rows: any[][] = [];
+
+    // (Optional but recommended Day 3 safety) prevent duplicates if Catalog has duplicate UPC rows
+    const seen = new Set<string>();
+
     for (const r of catalog.rows) {
       const upc = norm(r["upc"]);
       if (!upc) continue;
+
+      // ✅ (optional) dedupe catalog UPCs
+      if (seen.has(upc)) continue;
+      seen.add(upc);
 
       // active defaults to TRUE if blank
       const activeRaw = norm(r["active"]);
@@ -89,7 +119,10 @@ export async function GET(req: Request) {
 
       const purchased = purchasedByUpc[upc] || 0;
       const used = usedByUpc[upc] || 0;
-      const onHand = purchased - used;
+
+      // ✅ CHANGE #3: include adjustments in on-hand
+      const adj = adjByUpc[upc] || 0;
+      const onHand = purchased - used + adj;
 
       if (onHand > reorderPoint) continue;
 
@@ -130,6 +163,7 @@ export async function GET(req: Request) {
       "note",
     ];
 
+    // ✅ Writes ONLY to Shopping_List (does not touch Shopping_Manual)
     await overwriteTabValues({
       tabName: "Shopping_List",
       header,

@@ -524,7 +524,7 @@ ran: $curl -sS "$BASE/api/shopping-list?includeHidden=1" | python -m json.tool
 
 #### Results
 
-````$ curl -sS "$BASE/api/shopping-list?includeHidden=1" | python -m json.tool
+`$ curl -sS "$BASE/api/shopping-list?includeHidden=1" | python -m json.tool
 {
  "ok": true,
 "scope": "shopping-list",
@@ -636,11 +636,11 @@ ran: $curl -sS "$BASE/api/shopping-list?includeHidden=1" | python -m json.tool
 "note": ""
 }
 ]
-}```
+}`
 
 #### Bring item to same day list
 
-```curl -sS -X POST "$BASE/api/shopping/action" \
+````curl -sS -X POST "$BASE/api/shopping/action" \
  -H "Content-Type: application/json" \
  -H "x-api-key: $INTERNAL_API_KEY" \
  -d '{"upc":"CROISSANT","action":"undo","note":"bring back today"}' \
