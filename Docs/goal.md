@@ -112,7 +112,7 @@ Add safety:
 
 If inventory math missing → fail loudly
 
-### End of Day 3: Reorder engine reliable.
+### End of Day 3: Reorder engine reliable.(Done)
 
 # DAY 4 — Basic Manager Shopping Page
 
@@ -148,7 +148,7 @@ Refresh list
 
 No styling polish. Just working.
 
-### End of Day 4: Owner can operate without Sheets.
+### End of Day 4: Owner can operate without Sheets. (Done)
 
 # DAY 5 — Inventory Overview Page
 
@@ -174,7 +174,7 @@ Filter by location (optional)
 
 This builds trust.
 
-### End of Day 5: Owner can see current inventory status.
+### End of Day 5: Owner can see current inventory status. (Done)
 
 # DAY 6 — End-to-End System Test
 
