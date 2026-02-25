@@ -208,7 +208,27 @@ Log results.
 
 Fix any breakage.
 
-### End of Day 6: System validated.
+DAY 6 RESULTS — 2026-02-24
+
+TEST_UPC=EGG
+TEST_DATE=2026-02-24
+
+1. Baseline on-hand:
+2. After purchase:
+3. Inventory math run output:
+4. After usage subtraction:
+5. Reorder-check output:
+6. Shopping list output:
+7. Dismiss verified:
+8. Undo verified:
+9. Email verified:
+10. Reset verified:
+
+Breakages / Notes:
+
+-
+
+### End of Day 6: System validated. (Done)
 
 # DAY 7 — Documentation + Lock Scope
 

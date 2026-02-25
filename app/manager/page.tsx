@@ -11,6 +11,14 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+function isSheets429(err: any) {
+  // googleapis errors often have code/status, but sometimes just message text
+  const msg = String(err?.message || "");
+  return (
+    err?.code === 429 || err?.status === 429 || msg.includes("Quota exceeded")
+  );
+}
+
 export default async function ManagerPage({
   searchParams,
 }: {
@@ -18,13 +26,36 @@ export default async function ManagerPage({
 }) {
   const params = await searchParams;
   const includeHidden = params?.hidden === "1";
+  const hiddenHref = includeHidden ? "/manager" : "/manager?hidden=1";
 
-  const [rows, shoppingList] = await Promise.all([
+  // ✅ CHANGE: do NOT allow one failing sheet read to crash the entire page
+  const [alertsRes, shoppingRes] = await Promise.allSettled([
     getTodayManagerAlerts(),
     getShoppingList({ includeHidden }),
   ]);
 
-  const hiddenHref = includeHidden ? "/manager" : "/manager?hidden=1";
+  let rows: any[] = [];
+  let shoppingList: any[] = [];
+
+  let alertsError: string | null = null;
+  let shoppingError: string | null = null;
+
+  if (alertsRes.status === "fulfilled") {
+    rows = alertsRes.value || [];
+  } else {
+    alertsError = alertsRes.reason?.message || "Failed to load alerts.";
+  }
+
+  if (shoppingRes.status === "fulfilled") {
+    shoppingList = shoppingRes.value || [];
+  } else {
+    shoppingError =
+      shoppingRes.reason?.message || "Failed to load shopping list.";
+  }
+
+  const showRateLimitBanner =
+    isSheets429(alertsRes.status === "rejected" ? alertsRes.reason : null) ||
+    isSheets429(shoppingRes.status === "rejected" ? shoppingRes.reason : null);
 
   return (
     <AppShell title="Manager Dashboard">
@@ -47,6 +78,36 @@ export default async function ManagerPage({
 
           <SubscribeOnLogin />
         </header>
+
+        {/* ✅ CHANGE: Banner instead of hard crash on Sheets 429 */}
+        {showRateLimitBanner ? (
+          <div
+            style={{
+              marginTop: 14,
+              padding: 12,
+              borderRadius: 12,
+              border: "1px solid rgba(220, 38, 38, 0.35)",
+              background: "rgba(220, 38, 38, 0.08)",
+              fontWeight: 700,
+            }}
+          >
+            Google Sheets is rate-limiting reads right now (429). Refresh in ~60
+            seconds.
+          </div>
+        ) : null}
+
+        {/* Optional: show any other errors */}
+        {alertsError && !showRateLimitBanner ? (
+          <div style={{ marginTop: 12, color: "crimson", fontWeight: 700 }}>
+            Alerts error: {alertsError}
+          </div>
+        ) : null}
+
+        {shoppingError && !showRateLimitBanner ? (
+          <div style={{ marginTop: 12, color: "crimson", fontWeight: 700 }}>
+            Shopping list error: {shoppingError}
+          </div>
+        ) : null}
 
         {/* Auto reorder section */}
         <section style={{ marginTop: 16, marginBottom: 24 }}>

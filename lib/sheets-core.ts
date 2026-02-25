@@ -1,5 +1,7 @@
 // lib/sheets-core.ts
 import { google } from "googleapis";
+import { unstable_cache } from "next/cache";
+import type { sheets_v4 } from "googleapis";
 
 /**
  * ============================
@@ -98,6 +100,38 @@ function getSheetsClient() {
   return google.sheets({ version: "v4", auth });
 }
 
+// Small retry helper for Google Sheets 429 / transient errors
+async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
+  const maxAttempts = 2; // 1 retry
+  let lastErr: any = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (e: any) {
+      lastErr = e;
+
+      const code = e?.code ?? e?.status;
+      const msg = String(e?.message || "");
+      const is429 = code === 429 || msg.includes("Quota exceeded");
+      const is5xx = typeof code === "number" && code >= 500;
+
+      if (attempt < maxAttempts && (is429 || is5xx)) {
+        const backoffMs = is429 ? 900 : 400;
+        console.log(
+          `⚠️ Sheets retry (${label}) attempt ${attempt} -> waiting ${backoffMs}ms`,
+        );
+        await new Promise((r) => setTimeout(r, backoffMs));
+        continue;
+      }
+
+      throw e;
+    }
+  }
+
+  throw lastErr;
+}
+
 /**
  * Exported helper for routes/pages.
  * Business-local date string (YYYY-MM-DD).
@@ -132,16 +166,35 @@ function normalizeHeaderKey(h: any): string {
 /**
  * Read a tab as header-driven objects, with header normalization:
  * - keys are normalized via normalizeHeaderKey
+ *
+ * ✅ FIX: This MUST read the tabName you pass in.
+ * Before, it incorrectly read ALERTS_TAB for every tab.
  */
 async function readTabObjectsNormalized(tabName: string): Promise<any[]> {
   const sheets = getSheetsClient();
 
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: GOOGLE_SHEET_ID!,
-    range: `${tabName}!A:Z`,
-  });
+  // const res = await withRetry(
+  //   () =>
+  //     sheets.spreadsheets.values.get({
+  //       spreadsheetId: GOOGLE_SHEET_ID!,
+  //       range: `${tabName}!A:Z`,
+  //     }),
+  //   `values.get:${tabName}`,
+  // );
 
-  const values = res.data.values || [];
+  // const values = res.data.values || [];
+
+  const res = (await withRetry(
+    () =>
+      sheets.spreadsheets.values.get({
+        spreadsheetId: GOOGLE_SHEET_ID!,
+        range: `${tabName}!A:Z`,
+      }),
+    `values.get:${tabName}`,
+  )) as sheets_v4.Schema$ValueRange;
+
+  const values = res.values || [];
+
   if (values.length <= 1) return [];
 
   const headers = (values[0] || []).map((h: any) => normalizeHeaderKey(h));
@@ -189,11 +242,34 @@ function pick(obj: any, keys: string[]): string {
 /**
  * Detect whether Alerts sheet has a `source` column by reading header row.
  */
+// async function hasSourceColumn(sheets: any): Promise<boolean> {
+//   const res = await withRetry(
+//     () =>
+//       sheets.spreadsheets.values.get({
+//         spreadsheetId: GOOGLE_SHEET_ID!,
+//         range: `${ALERTS_TAB}!1:1`,
+//       }),
+//     "alerts.header.get",
+//   );
+
+//   const headers = (res.data.values?.[0] || []).map((h: any) =>
+//     String(h || "")
+//       .trim()
+//       .toLowerCase(),
+//   );
+
+//   return headers.includes("source");
+// }
+
 async function hasSourceColumn(sheets: any): Promise<boolean> {
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: GOOGLE_SHEET_ID!,
-    range: `${ALERTS_TAB}!1:1`,
-  });
+  const res = (await withRetry(
+    () =>
+      sheets.spreadsheets.values.get({
+        spreadsheetId: GOOGLE_SHEET_ID!,
+        range: `${ALERTS_TAB}!1:1`,
+      }),
+    "alerts.header.get",
+  )) as any;
 
   const headers = (res.data.values?.[0] || []).map((h: any) =>
     String(h || "")
@@ -202,6 +278,47 @@ async function hasSourceColumn(sheets: any): Promise<boolean> {
   );
 
   return headers.includes("source");
+}
+
+/**
+ * Create an alert (generates alertId + writes to Alerts sheet)
+ * Used by: POST /api/alert/create
+ */
+export async function createAlert(input: {
+  item?: string;
+  qty?: string;
+  location?: string;
+  note?: string;
+  ip?: string;
+  userAgent?: string;
+  source?: string;
+}): Promise<string> {
+  const item = String(input.item ?? "").trim();
+  const qty = String(input.qty ?? "").trim();
+  const location = String(input.location ?? "").trim();
+
+  if (!item) throw new Error("Missing required field: item");
+  if (!qty) throw new Error("Missing required field: qty");
+  if (!location) throw new Error("Missing required field: location");
+
+  // Prefer crypto.randomUUID() (Node 18+). Fallback for older runtimes.
+  const alertId =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? (crypto as any).randomUUID()
+      : `alert_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+
+  await logAlertToSheet({
+    item,
+    qty,
+    location,
+    note: input.note,
+    ip: input.ip,
+    userAgent: input.userAgent,
+    alertId,
+    source: input.source,
+  });
+
+  return alertId;
 }
 
 /**
@@ -256,15 +373,19 @@ export async function logAlertToSheet({
 }
 
 /**
- * Read all alerts (A:K + optional L)
+ * Uncached Alerts read
  */
-export async function getAllAlerts(): Promise<AlertRow[]> {
+async function _getAllAlertsUncached(): Promise<AlertRow[]> {
   const sheets = getSheetsClient();
 
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: GOOGLE_SHEET_ID!,
-    range: `${ALERTS_TAB}!A:L`,
-  });
+  const res = await withRetry(
+    () =>
+      sheets.spreadsheets.values.get({
+        spreadsheetId: GOOGLE_SHEET_ID!,
+        range: `${ALERTS_TAB}!A:L`,
+      }),
+    "alerts.values.get",
+  );
 
   const values = res.data.values || [];
   if (values.length <= 1) return [];
@@ -312,6 +433,16 @@ export async function getAllAlerts(): Promise<AlertRow[]> {
     return rowObj;
   });
 }
+
+/**
+ * Cached getAllAlerts to reduce Sheets read quota usage.
+ * Start with 10s. If you still see 429s, bump to 30s.
+ */
+export const getAllAlerts = unstable_cache(
+  async () => _getAllAlertsUncached(),
+  ["alerts", "all", ALERTS_TAB],
+  { revalidate: 10 },
+);
 
 export async function getTodayAlerts(): Promise<AlertRow[]> {
   const all = await getAllAlerts();
@@ -364,10 +495,6 @@ export async function getTodayChecklist(): Promise<AlertRow[]> {
  * ============================
  * Expected sheet headers (case-insensitive):
  * date | upc | action | note | actor
- *
- * IMPORTANT:
- * - Append-only ledger (no DB).
- * - Header-driven append to prevent column shift issues.
  */
 export async function appendShoppingAction(input: {
   date: string; // YYYY-MM-DD
@@ -378,25 +505,25 @@ export async function appendShoppingAction(input: {
 }) {
   const sheets = getSheetsClient();
 
-  // Safety: validate date format to protect “today” logic
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(input.date ?? "").trim())) {
     throw new Error(
       `Shopping action date must be YYYY-MM-DD. Received: ${input.date}`,
     );
   }
 
-  // Read header row
-  const headerRes = await sheets.spreadsheets.values.get({
-    spreadsheetId: GOOGLE_SHEET_ID!,
-    range: `Shopping_Actions!1:1`,
-  });
+  const headerRes = await withRetry(
+    () =>
+      sheets.spreadsheets.values.get({
+        spreadsheetId: GOOGLE_SHEET_ID!,
+        range: `Shopping_Actions!1:1`,
+      }),
+    "shopping_actions.header.get",
+  );
 
   const rawHeaders = (headerRes.data.values?.[0] || []).map((h: any) =>
     String(h ?? "").trim(),
   );
 
-  // Case-insensitive header index (we keep this simple because Shopping_Actions
-  // is a controlled tab you own).
   const indexByHeader = new Map<string, number>();
   rawHeaders.forEach((h: string, i: number) => {
     const key = h.trim().toLowerCase();
@@ -414,7 +541,6 @@ export async function appendShoppingAction(input: {
     );
   }
 
-  // Align row to current header layout
   const row: any[] = new Array(rawHeaders.length).fill("");
 
   row[indexByHeader.get("date")!] = String(input.date).trim();
@@ -438,10 +564,14 @@ export async function appendShoppingAction(input: {
 async function getShoppingActions(): Promise<ShoppingActionRow[]> {
   const sheets = getSheetsClient();
 
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: GOOGLE_SHEET_ID!,
-    range: `Shopping_Actions!A:Z`,
-  });
+  const res = await withRetry(
+    () =>
+      sheets.spreadsheets.values.get({
+        spreadsheetId: GOOGLE_SHEET_ID!,
+        range: `Shopping_Actions!A:Z`,
+      }),
+    "shopping_actions.values.get",
+  );
 
   const values = res.data.values || [];
   if (values.length <= 1) return [];
@@ -460,7 +590,6 @@ async function getShoppingActions(): Promise<ShoppingActionRow[]> {
     return obj as ShoppingActionRow;
   });
 
-  // Normalize UPC so matching is reliable
   return objects
     .map((r) => ({ ...r, upc: normUpc(r.upc) }))
     .filter((r) => String(r.upc ?? "").length > 0);
@@ -480,13 +609,8 @@ export type InventoryAdjustmentRow = {
  * ============================
  * Inventory_Adjustments (ledger)
  * ============================
- * Expected headers (case-insensitive):
- * timestamp | date | upc | adjustment_type | base_units_delta | reason | actor
- *
- * Append-only. Never overwrite.
  */
 export async function appendInventoryAdjustment(input: {
-  // date is optional; default to business date NY
   date?: string; // YYYY-MM-DD
   upc: string;
   base_units_delta: number; // can be negative
@@ -503,10 +627,14 @@ export async function appendInventoryAdjustment(input: {
     );
   }
 
-  const headerRes = await sheets.spreadsheets.values.get({
-    spreadsheetId: GOOGLE_SHEET_ID!,
-    range: `Inventory_Adjustments!1:1`,
-  });
+  const headerRes = await withRetry(
+    () =>
+      sheets.spreadsheets.values.get({
+        spreadsheetId: GOOGLE_SHEET_ID!,
+        range: `Inventory_Adjustments!1:1`,
+      }),
+    "inventory_adjustments.header.get",
+  );
 
   const rawHeaders = (headerRes.data.values?.[0] || []).map((h: any) =>
     String(h ?? "").trim(),
@@ -543,9 +671,13 @@ export async function appendInventoryAdjustment(input: {
   row[indexByHeader.get("timestamp")!] = new Date().toISOString();
   row[indexByHeader.get("date")!] = date;
   row[indexByHeader.get("upc")!] = normUpc(input.upc);
+
   row[indexByHeader.get("adjustment_type")!] = String(
     input.adjustment_type ?? "adjust",
-  ).trim().toLowerCase;
+  )
+    .trim()
+    .toLowerCase();
+
   row[indexByHeader.get("base_units_delta")!] = String(input.base_units_delta);
   row[indexByHeader.get("reason")!] = input.reason ?? "";
   row[indexByHeader.get("actor")!] = input.actor ?? "";
@@ -561,7 +693,6 @@ export async function appendInventoryAdjustment(input: {
 
 /**
  * Read Inventory_Adjustments as objects (normalized headers + normalized UPC).
- * Optional date filter (YYYY-MM-DD). If provided, only that business date’s adjustments.
  */
 export async function getInventoryAdjustments(opts?: {
   date?: string; // YYYY-MM-DD
@@ -615,37 +746,17 @@ export async function getAdjustmentDeltaByUpc(opts?: {
  * Shopping_List (computed) + Shopping_Manual merge + hide rules
  * OPTION B: Catalog enrichment
  * ============================
- *
- * Tabs:
- * - Shopping_List   (computed output from reorder-check)
- * - Shopping_Manual (manual test lane)
- *
- * Merge policy:
- * - Dedupe by UPC
- * - Computed wins (manual is additive, not overriding real reorder results)
- *
- * Enrichment policy (Option B):
- * - If a merged row is missing product_name/base_unit/reorder_point/etc,
- *   fill from Catalog (if present).
  */
 export async function getShoppingList(opts?: {
   includeHidden?: boolean;
 }): Promise<ShoppingListRow[]> {
   const includeHidden = !!opts?.includeHidden;
 
-  // Read computed + manual in parallel.
-  // If Shopping_Manual doesn't exist yet, treat as empty.
   const [computedRaw, manualRaw] = await Promise.all([
     readTabObjectsNormalized("Shopping_List"),
     readTabObjectsNormalized("Shopping_Manual").catch(() => []),
   ]);
 
-  /**
-   * --------
-   * OPTION B: Catalog enrich
-   * --------
-   * We try common tab names. If none exist, this becomes a no-op.
-   */
   const catalogCandidates = [
     "Catalog",
     "CATALOG",
@@ -672,18 +783,14 @@ export async function getShoppingList(opts?: {
 
     return {
       ...row,
-
-      // Fill-only if missing on the row
       product_name:
         String(row.product_name ?? "").trim() !== ""
           ? row.product_name
           : pick(cat, ["product_name", "name", "item_name", "product"]),
-
       base_unit:
         String(row.base_unit ?? "").trim() !== ""
           ? row.base_unit
           : pick(cat, ["base_unit", "unit", "uom", "size_unit"]),
-
       reorder_point:
         String(row.reorder_point ?? "").trim() !== ""
           ? row.reorder_point
@@ -693,17 +800,14 @@ export async function getShoppingList(opts?: {
               "reorder_level",
               "reorder",
             ]),
-
       par_level:
         String(row.par_level ?? "").trim() !== ""
           ? row.par_level
           : pick(cat, ["par_level", "par", "parlevel"]),
-
       preferred_vendor:
         String(row.preferred_vendor ?? "").trim() !== ""
           ? row.preferred_vendor
           : pick(cat, ["preferred_vendor", "vendor", "supplier"]),
-
       default_location:
         String(row.default_location ?? "").trim() !== ""
           ? row.default_location
@@ -721,14 +825,12 @@ export async function getShoppingList(opts?: {
     .filter((r) => String(r.upc ?? "").length > 0)
     .map(enrichFromCatalog);
 
-  // Merge + dedupe by UPC (manual first, computed overwrites -> computed wins)
   const byUpc = new Map<string, ShoppingListRow>();
   for (const r of manual) byUpc.set(normUpc(r.upc), r);
   for (const r of computed) byUpc.set(normUpc(r.upc), r);
 
   let filtered = Array.from(byUpc.values());
 
-  // Hide rules: latest action wins per UPC for TODAY
   if (!includeHidden) {
     const today = getBusinessDateNY();
     const actions = await getShoppingActions();
@@ -761,7 +863,6 @@ export async function getShoppingList(opts?: {
     filtered = filtered.filter((r) => !hiddenUpcs.has(normUpc(r.upc)));
   }
 
-  // Sort by qty_to_order desc (optional)
   filtered.sort((a, b) => {
     const qa =
       Number(
@@ -781,9 +882,6 @@ export async function getShoppingList(opts?: {
  * ============================
  * Reorder_Email_Log (spam resistance)
  * ============================
- * Tab: Reorder_Email_Log
- * Expected headers:
- * timestamp | business_date | items | recipients | actor | request_id | items_hash
  */
 export async function shouldSendReorderEmail(opts: {
   businessDate: string;
@@ -798,10 +896,14 @@ export async function shouldSendReorderEmail(opts: {
 }> {
   const sheets = getSheetsClient();
 
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: GOOGLE_SHEET_ID!,
-    range: `Reorder_Email_Log!A:Z`,
-  });
+  const res = await withRetry(
+    () =>
+      sheets.spreadsheets.values.get({
+        spreadsheetId: GOOGLE_SHEET_ID!,
+        range: `Reorder_Email_Log!A:Z`,
+      }),
+    "reorder_email_log.values.get",
+  );
 
   const values = res.data.values || [];
   if (values.length <= 1) {
@@ -825,7 +927,6 @@ export async function shouldSendReorderEmail(opts: {
   const tsIdx = idx("timestamp");
   const bdIdx = idx("business_date");
 
-  // Fail-open if sheet header is wrong (but include debug)
   if (tsIdx === -1 || bdIdx === -1) {
     return {
       okToSend: true,
@@ -866,7 +967,6 @@ export async function shouldSendReorderEmail(opts: {
     }
   }
 
-  // Cooldown blocks repeated sends unless force=2
   if (lastSentAt && opts.forceLevel < 2) {
     const age = now.getTime() - lastSentAt.getTime();
     if (age >= 0 && age < cutoffMs) {
@@ -880,7 +980,6 @@ export async function shouldSendReorderEmail(opts: {
     }
   }
 
-  // Daily lock blocks unless force>=1
   if (sentToday && opts.forceLevel === 0) {
     return {
       okToSend: false,
@@ -902,8 +1001,6 @@ export async function shouldSendReorderEmail(opts: {
 
 /**
  * Header-driven append to Reorder_Email_Log
- * Expected headers:
- * timestamp | business_date | items | recipients | actor | request_id | items_hash
  */
 export async function appendReorderEmailLogRow(input: {
   timestamp: string;
@@ -916,10 +1013,14 @@ export async function appendReorderEmailLogRow(input: {
 }) {
   const sheets = getSheetsClient();
 
-  const headerRes = await sheets.spreadsheets.values.get({
-    spreadsheetId: GOOGLE_SHEET_ID!,
-    range: `Reorder_Email_Log!1:1`,
-  });
+  const headerRes = await withRetry(
+    () =>
+      sheets.spreadsheets.values.get({
+        spreadsheetId: GOOGLE_SHEET_ID!,
+        range: `Reorder_Email_Log!1:1`,
+      }),
+    "reorder_email_log.header.get",
+  );
 
   const rawHeaders = (headerRes.data.values?.[0] || []).map((h: any) =>
     String(h ?? "").trim(),
@@ -981,10 +1082,14 @@ async function updateAlertStatusById(
 ): Promise<boolean> {
   const sheets = getSheetsClient();
 
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: GOOGLE_SHEET_ID!,
-    range: `${ALERTS_TAB}!A:L`,
-  });
+  const res = await withRetry(
+    () =>
+      sheets.spreadsheets.values.get({
+        spreadsheetId: GOOGLE_SHEET_ID!,
+        range: `${ALERTS_TAB}!A:L`,
+      }),
+    "alerts.values.get.for_update",
+  );
 
   const values = res.data.values || [];
   if (values.length <= 1) return false;

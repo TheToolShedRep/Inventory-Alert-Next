@@ -5,6 +5,16 @@ import { readTabAsObjects } from "@/lib/sheets/read";
 import { overwriteTabValues } from "@/lib/sheets/overwriteTab";
 import { requireInternalKey } from "@/lib/auth/internal";
 
+/**
+ * DAY 3 GOAL:
+ * - Deterministic reorder-check
+ * - Reads inventory signals (purchases, usage, adjustments)
+ * - Writes ONLY to Shopping_List
+ * - Does NOT touch Shopping_Manual
+ * - Avoid duplicates / header issues
+ * - Fail loudly if inventory math is missing
+ */
+
 function norm(v: any) {
   return String(v ?? "").trim();
 }
@@ -26,36 +36,39 @@ export async function GET(req: Request) {
   const deny = requireInternalKey(req);
   if (deny) return deny;
 
-  console.log("REORDER-CHECK HIT ✅", {
-    url: req.url,
-    hasHeader: !!req.headers.get("x-api-key"),
-    expectedSet: !!process.env.INTERNAL_API_KEY,
-    now: new Date().toISOString(),
-  });
-
-  console.log("REORDER-CHECK ROUTE HIT ✅", new Date().toISOString());
-
   const started = Date.now();
   const nowIso = new Date().toISOString();
 
   try {
-    // ✅ CHANGE #1: include Inventory_Adjustments AND capture it in destructuring
+    /**
+     * ✅ CHANGE: include Inventory_Adjustments and destructure it correctly
+     */
     const [catalog, purchases, usage, adjustments] = await Promise.all([
       readTabAsObjects("Catalog"),
       readTabAsObjects("Purchases"),
       readTabAsObjects("Inventory_Usage"),
-      readTabAsObjects("Inventory_Adjustments"),
+      readTabAsObjects("Inventory_Adjustments").catch(() => ({
+        rows: [],
+        ok: true,
+      })),
     ]);
 
-    // (Optional but recommended Day 3 safety)
-    // Fail loudly if inventory math is missing (so reorder-check can't lie)
+    /**
+     * ✅ DAY 3 SAFETY:
+     * If inventory math hasn't been run / usage is empty, fail loudly.
+     * This prevents reorder-check from silently lying based only on purchases.
+     */
     if (!usage.rows || usage.rows.length === 0) {
       throw new Error(
         "Inventory_Usage is empty. Run /api/inventory-math/run?date=YYYY-MM-DD first (mode=replace recommended).",
       );
     }
 
-    // Build quick lookup for Purchases sums per UPC
+    /**
+     * Purchases: sum base units added (lifetime)
+     * - Prefer base_units_added if present
+     * - Else fallback to qty_purchased
+     */
     const purchasedByUpc: Record<string, number> = {};
     for (const r of purchases.rows) {
       const upc = norm(r["upc"]);
@@ -69,19 +82,23 @@ export async function GET(req: Request) {
       if (add > 0) purchasedByUpc[upc] = (purchasedByUpc[upc] || 0) + add;
     }
 
-    // Build quick lookup for Usage sums per UPC (lifetime)
+    /**
+     * Usage: sum theoretical used qty (lifetime)
+     */
     const usedByUpc: Record<string, number> = {};
     for (const r of usage.rows) {
       const upc = norm(r["ingredient_upc"]);
       if (!upc) continue;
 
       const used = toNumber(r["theoretical_used_qty"]);
-      if (used > 0) usedByUpc[upc] = (usedByUpc[upc] || 0) + used;
+      if (used !== 0) usedByUpc[upc] = (usedByUpc[upc] || 0) + used;
     }
 
-    // ✅ CHANGE #2: build quick lookup for Adjustments sums per UPC (lifetime)
+    /**
+     * ✅ CHANGE: Adjustments: sum base_units_delta (lifetime)
+     */
     const adjByUpc: Record<string, number> = {};
-    for (const r of adjustments.rows) {
+    for (const r of adjustments.rows || []) {
       const upc = norm(r["upc"]);
       if (!upc) continue;
 
@@ -89,17 +106,17 @@ export async function GET(req: Request) {
       if (delta !== 0) adjByUpc[upc] = (adjByUpc[upc] || 0) + delta;
     }
 
-    // Generate reorder rows
+    /**
+     * Build Shopping_List rows from Catalog
+     */
     const rows: any[][] = [];
-
-    // (Optional but recommended Day 3 safety) prevent duplicates if Catalog has duplicate UPC rows
-    const seen = new Set<string>();
+    const seen = new Set<string>(); // ✅ safety vs duplicate UPC rows in Catalog
 
     for (const r of catalog.rows) {
       const upc = norm(r["upc"]);
       if (!upc) continue;
 
-      // ✅ (optional) dedupe catalog UPCs
+      // ✅ prevent duplicates if Catalog has duplicate UPCs
       if (seen.has(upc)) continue;
       seen.add(upc);
 
@@ -119,11 +136,14 @@ export async function GET(req: Request) {
 
       const purchased = purchasedByUpc[upc] || 0;
       const used = usedByUpc[upc] || 0;
-
-      // ✅ CHANGE #3: include adjustments in on-hand
       const adj = adjByUpc[upc] || 0;
+
+      /**
+       * ✅ CHANGE: onHand includes adjustments
+       */
       const onHand = purchased - used + adj;
 
+      // Only flag items at/below reorder point
       if (onHand > reorderPoint) continue;
 
       // Qty to order: prefer par - onHand if par exists, otherwise reorderPoint - onHand
@@ -163,7 +183,10 @@ export async function GET(req: Request) {
       "note",
     ];
 
-    // ✅ Writes ONLY to Shopping_List (does not touch Shopping_Manual)
+    /**
+     * ✅ Day 3 requirement: writes ONLY to Shopping_List
+     * Does not touch Shopping_Manual.
+     */
     await overwriteTabValues({
       tabName: "Shopping_List",
       header,
