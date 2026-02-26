@@ -39,6 +39,12 @@ export async function GET(req: Request) {
   const started = Date.now();
   const nowIso = new Date().toISOString();
 
+  // ✅ CHANGE (DEBUG): Echo which spreadsheet env value is being used at runtime.
+  // This helps prove env mismatch across "read" vs "write" paths.
+  // If this ID differs from /api/shopping-list debug_sheet_id, that’s the bug.
+  const debug_sheet_id =
+    process.env.SHEET_ID || process.env.GOOGLE_SHEET_ID || "";
+
   try {
     /**
      * ✅ CHANGE: include Inventory_Adjustments and destructure it correctly
@@ -199,6 +205,17 @@ export async function GET(req: Request) {
       ms: Date.now() - started,
       items_flagged: rows.length,
       written_to: "Shopping_List",
+
+      // ✅ CHANGE (DEBUG): return which sheet ID env was used.
+      debug_sheet_id,
+
+      // ✅ Optional extra debug (helps confirm the tab reads are non-empty)
+      debug_counts: {
+        catalog: catalog?.rows?.length ?? 0,
+        purchases: purchases?.rows?.length ?? 0,
+        usage: usage?.rows?.length ?? 0,
+        adjustments: (adjustments as any)?.rows?.length ?? 0,
+      },
     });
   } catch (e: any) {
     return NextResponse.json(
@@ -206,6 +223,9 @@ export async function GET(req: Request) {
         ok: false,
         scope: "reorder-check",
         error: e?.message || "Server error",
+
+        // ✅ CHANGE (DEBUG): still echo sheet id even on error
+        debug_sheet_id,
       },
       { status: 500 },
     );

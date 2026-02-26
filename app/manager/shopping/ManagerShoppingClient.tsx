@@ -53,6 +53,7 @@ export default function ManagerShoppingClient() {
 
   async function act(
     upcRaw: string,
+    productNameRaw: string,
     action: "dismissed" | "purchased" | "undo",
   ) {
     const upc = norm(upcRaw).toUpperCase();
@@ -65,7 +66,11 @@ export default function ManagerShoppingClient() {
       const res = await fetch("/api/shopping/action", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ upc, action }),
+        body: JSON.stringify({
+          upc,
+          action,
+          product_name: norm(productNameRaw),
+        }),
       });
 
       const data = await res.json().catch(() => ({}));
@@ -195,7 +200,7 @@ export default function ManagerShoppingClient() {
 
               <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
                 <button
-                  onClick={() => act(upc, "dismissed")}
+                  onClick={() => act(upc, r.product_name || name, "dismissed")}
                   disabled={disabled}
                   style={{ padding: "8px 12px" }}
                 >
@@ -203,7 +208,7 @@ export default function ManagerShoppingClient() {
                 </button>
 
                 <button
-                  onClick={() => act(upc, "purchased")}
+                  onClick={() => act(upc, r.product_name || name, "purchased")}
                   disabled={disabled}
                   style={{ padding: "8px 12px" }}
                 >
@@ -211,7 +216,7 @@ export default function ManagerShoppingClient() {
                 </button>
 
                 <button
-                  onClick={() => act(upc, "undo")}
+                  onClick={() => act(upc, r.product_name || name, "undo")}
                   disabled={disabled}
                   style={{ padding: "8px 12px" }}
                 >

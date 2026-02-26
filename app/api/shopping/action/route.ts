@@ -1,7 +1,11 @@
 // app/api/shopping/action/route.ts
 import { NextResponse } from "next/server";
 import { auth, currentUser } from "@clerk/nextjs/server";
-import { appendShoppingAction, getBusinessDateNY } from "@/lib/sheets-core";
+import {
+  appendShoppingAction,
+  ensureCatalogItem,
+  getBusinessDateNY,
+} from "@/lib/sheets-core";
 
 export const runtime = "nodejs";
 
@@ -67,6 +71,7 @@ export async function POST(req: Request) {
     .trim()
     .toLowerCase();
   const note = String(body?.note ?? "").trim();
+  const product_name = String(body?.product_name ?? "").trim();
   const date = getBusinessDateNY();
   // const date = String(body?.date ?? "").trim() || getBusinessDateNY();
 
@@ -104,6 +109,13 @@ export async function POST(req: Request) {
     note,
     actor,
   });
+
+  if (action === "purchased") {
+    await ensureCatalogItem({
+      upc,
+      product_name: product_name || upc,
+    });
+  }
 
   return NextResponse.json({ ok: true });
 }

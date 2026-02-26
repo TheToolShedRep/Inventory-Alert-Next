@@ -53,6 +53,13 @@ export default function HomeHub() {
         href: "/checklist",
         enabled: true,
       },
+      {
+        key: "manager-shopping",
+        title: "Manager Shopping",
+        subtitle: "Reorder list + quantities to buy",
+        href: "/manager/shopping",
+        enabled: true,
+      },
 
       // 🔒 Coming soon (disabled)
       {

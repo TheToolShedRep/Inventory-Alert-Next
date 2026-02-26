@@ -8,7 +8,7 @@ import type { sheets_v4 } from "googleapis";
  * ENV
  * ============================
  */
-const GOOGLE_SHEET_ID = process.env.SHEET_ID; // your project uses SHEET_ID
+const GOOGLE_SHEET_ID = process.env.GOOGLE_SHEET_ID; // your project uses SHEET_ID
 const ALERTS_TAB = process.env.ALERTS_TAB || process.env.SHEET_TAB; // backward compatible
 const SERVICE_ACCOUNT_BASE64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64;
 
@@ -752,10 +752,28 @@ export async function getShoppingList(opts?: {
 }): Promise<ShoppingListRow[]> {
   const includeHidden = !!opts?.includeHidden;
 
+  const SHOPPING_LIST_TAB = process.env.SHOPPING_LIST_TAB || "Shopping_List";
+
+  const SHOPPING_MANUAL_TAB =
+    process.env.SHOPPING_MANUAL_TAB || "Shopping_Manual";
+
   const [computedRaw, manualRaw] = await Promise.all([
-    readTabObjectsNormalized("Shopping_List"),
-    readTabObjectsNormalized("Shopping_Manual").catch(() => []),
+    readTabObjectsNormalized(SHOPPING_LIST_TAB),
+
+    readTabObjectsNormalized(SHOPPING_MANUAL_TAB).catch((e) => {
+      console.warn(
+        "⚠️ Failed reading manual tab:",
+        SHOPPING_MANUAL_TAB,
+        e?.message || e,
+      );
+      return [];
+    }),
   ]);
+
+  console.log("SHOPPING_LIST_TAB:", SHOPPING_LIST_TAB);
+  console.log("SHOPPING_MANUAL_TAB:", SHOPPING_MANUAL_TAB);
+  console.log("computedRaw length:", computedRaw.length);
+  console.log("manualRaw length:", manualRaw.length);
 
   const catalogCandidates = [
     "Catalog",
@@ -1127,4 +1145,111 @@ export async function cancelAlertById(alertId: string): Promise<boolean> {
 
 export async function resolveAlertById(alertId: string): Promise<boolean> {
   return updateAlertStatusById(alertId, "resolved");
+}
+
+// ===============================
+// Ensure Catalog Item Exists
+// ===============================
+export async function ensureCatalogItem(input: {
+  upc?: string;
+  product_name: string;
+}) {
+  const CATALOG_TAB = process.env.CATALOG_TAB || "Catalog";
+
+  const upc = String(input.upc || "").trim();
+  const product_name = String(input.product_name || "").trim();
+
+  if (!product_name) {
+    throw new Error("Missing product_name");
+  }
+
+  const sheets = await getSheetsClient(); // use your existing client getter
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: GOOGLE_SHEET_ID!,
+    range: `${CATALOG_TAB}!A:Z`,
+  });
+
+  const values = res.data.values || [];
+  if (values.length === 0) {
+    throw new Error("Catalog sheet missing headers");
+  }
+
+  const header = values[0].map((h) => String(h).trim());
+  const idx = (col: string) => header.indexOf(col);
+
+  const i_upc = idx("upc");
+  const i_name = idx("product_name");
+  const i_last = idx("last_seen");
+
+  if (i_name === -1) {
+    throw new Error("Catalog missing 'product_name' header");
+  }
+
+  let found = false;
+  let rowIndex = -1;
+
+  // Try match by UPC first
+  if (upc && i_upc !== -1) {
+    for (let r = 1; r < values.length; r++) {
+      if (String(values[r][i_upc] || "").trim() === upc) {
+        found = true;
+        rowIndex = r;
+        break;
+      }
+    }
+  }
+
+  // Fallback: match by name
+  if (!found) {
+    const norm = product_name.toLowerCase().trim();
+    for (let r = 1; r < values.length; r++) {
+      const existing = String(values[r][i_name] || "")
+        .toLowerCase()
+        .trim();
+      if (existing === norm) {
+        found = true;
+        rowIndex = r;
+        break;
+      }
+    }
+  }
+
+  // If found → update last_seen
+  if (found) {
+    if (i_last !== -1) {
+      const sheetRow = rowIndex + 1;
+      values[rowIndex][i_last] = new Date().toISOString();
+
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: GOOGLE_SHEET_ID!,
+        range: `${CATALOG_TAB}!A${sheetRow}:Z${sheetRow}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [values[rowIndex]] },
+      });
+    }
+
+    return { created: false };
+  }
+
+  // If not found → append new row
+  const newRow = new Array(header.length).fill("");
+
+  const set = (col: string, val: any) => {
+    const i = idx(col);
+    if (i !== -1) newRow[i] = val;
+  };
+
+  set("upc", upc);
+  set("product_name", product_name);
+  set("active", "true");
+  set("last_seen", new Date().toISOString());
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: GOOGLE_SHEET_ID!,
+    range: `${CATALOG_TAB}!A:Z`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [newRow] },
+  });
+
+  return { created: true };
 }
