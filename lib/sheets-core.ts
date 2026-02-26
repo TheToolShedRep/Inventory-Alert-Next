@@ -8,7 +8,11 @@ import type { sheets_v4 } from "googleapis";
  * ENV
  * ============================
  */
-const GOOGLE_SHEET_ID = process.env.GOOGLE_SHEET_ID; // your project uses SHEET_ID
+// const GOOGLE_SHEET_ID = process.env.GOOGLE_SHEET_ID; // your project uses SHEET_ID
+// ✅ CHANGE: Support both env names so all routes read the same spreadsheet
+const GOOGLE_SHEET_ID = process.env.SHEET_ID || process.env.GOOGLE_SHEET_ID;
+if (!GOOGLE_SHEET_ID)
+  throw new Error("Missing env: SHEET_ID (or GOOGLE_SHEET_ID)");
 const ALERTS_TAB = process.env.ALERTS_TAB || process.env.SHEET_TAB; // backward compatible
 const SERVICE_ACCOUNT_BASE64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64;
 
