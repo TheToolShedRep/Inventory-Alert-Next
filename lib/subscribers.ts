@@ -18,7 +18,7 @@ const SUBSCRIBERS_TAB = process.env.SUBSCRIBERS_TAB || "subscribers";
 
 export async function addSubscriberEmail(email: string) {
   const GOOGLE_SHEET_ID = process.env.GOOGLE_SHEET_ID;
-  if (!GOOGLE_SHEET_ID) throw new Error("Missing SHEET_ID");
+  if (!GOOGLE_SHEET_ID) throw new Error("Missing env: GOOGLE_SHEET_ID");
 
   const auth = getServiceAccountClient();
   const sheets = google.sheets({ version: "v4", auth });
@@ -60,8 +60,8 @@ export async function addSubscriberEmail(email: string) {
 }
 
 export async function getSubscriberEmails() {
-  const GOOGLE_SHEET_ID = process.env.SHEET_ID;
-  if (!GOOGLE_SHEET_ID) throw new Error("Missing SHEET_ID");
+  const GOOGLE_SHEET_ID = process.env.GOOGLE_SHEET_ID;
+  if (!GOOGLE_SHEET_ID) throw new Error("Missing env: GOOGLE_SHEET_ID");
 
   const auth = getServiceAccountClient();
   const sheets = google.sheets({ version: "v4", auth });

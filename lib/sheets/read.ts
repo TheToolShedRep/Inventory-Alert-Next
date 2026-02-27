@@ -6,9 +6,11 @@ const sheets = google.sheets("v4");
 
 export async function readTabAsObjects(tabName: string) {
   // ✅ FIX: use SHEET_ID as primary; fallback to GOOGLE_SHEET_ID for backward compatibility
-  const spreadsheetId = process.env.SHEET_ID || process.env.GOOGLE_SHEET_ID;
-  if (!spreadsheetId)
-    throw new Error("Missing env: SHEET_ID (or GOOGLE_SHEET_ID)");
+  const spreadsheetId = process.env.GOOGLE_SHEET_ID;
+
+  if (!spreadsheetId) {
+    throw new Error("Missing env: GOOGLE_SHEET_ID");
+  }
 
   const auth = getSheetsAuth();
 

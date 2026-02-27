@@ -16,12 +16,13 @@ if (!GOOGLE_SHEET_ID) {
   throw new Error("Missing env: GOOGLE_SHEET_ID");
 }
 
-const ALERTS_TAB = process.env.ALERTS_TAB || process.env.SHEET_TAB; // backward compatible
+const ALERTS_TAB = process.env.ALERTS_TAB;
 const SERVICE_ACCOUNT_BASE64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64;
 
-if (!GOOGLE_SHEET_ID) throw new Error("Missing env: SHEET_ID");
-if (!ALERTS_TAB)
-  throw new Error("Missing env: ALERTS_TAB (or legacy SHEET_TAB)");
+if (!GOOGLE_SHEET_ID) throw new Error("Missing env: GOOGLE_SHEET_ID");
+if (!ALERTS_TAB) {
+  throw new Error("Missing env: ALERTS_TAB");
+}
 if (!SERVICE_ACCOUNT_BASE64)
   throw new Error("Missing env: GOOGLE_SERVICE_ACCOUNT_JSON_BASE64");
 

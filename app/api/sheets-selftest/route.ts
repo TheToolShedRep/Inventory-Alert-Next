@@ -18,7 +18,7 @@ function getServiceAccount() {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   if (!raw)
     throw new Error(
-      "Missing GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 (or GOOGLE_SERVICE_ACCOUNT_JSON)"
+      "Missing GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 (or GOOGLE_SERVICE_ACCOUNT_JSON)",
     );
 
   const trimmed = raw.trim();
@@ -36,8 +36,8 @@ function getServiceAccount() {
 
 export async function GET() {
   try {
-    const sheetId = process.env.SHEET_ID;
-    if (!sheetId) throw new Error("Missing SHEET_ID");
+    const sheetId = process.env.GOOGLE_SHEET_ID;
+    if (!sheetId) throw new Error("Missing GOOGLE_SHEET_ID");
 
     const creds = getServiceAccount();
 
@@ -59,7 +59,7 @@ export async function GET() {
   } catch (e: any) {
     return NextResponse.json(
       { ok: false, error: String(e?.message || e) },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

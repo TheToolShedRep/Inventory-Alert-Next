@@ -42,8 +42,7 @@ export async function GET(req: Request) {
   // ✅ CHANGE (DEBUG): Echo which spreadsheet env value is being used at runtime.
   // This helps prove env mismatch across "read" vs "write" paths.
   // If this ID differs from /api/shopping-list debug_sheet_id, that’s the bug.
-  const debug_sheet_id =
-    process.env.SHEET_ID || process.env.GOOGLE_SHEET_ID || "";
+  const debug_sheet_id = process.env.GOOGLE_SHEET_ID || "";
 
   try {
     /**

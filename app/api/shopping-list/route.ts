@@ -14,7 +14,7 @@ export async function GET(req: Request) {
     const businessDate = getBusinessDateNY();
 
     // ✅ TEMP DEBUG: which sheet id is this route using?
-    const debugSheetId = process.env.SHEET_ID || process.env.GOOGLE_SHEET_ID;
+    const debugSheetId = process.env.GOOGLE_SHEET_ID || "";
 
     // ✅ TEMP DEBUG: RAW read of Shopping_List directly (bypasses getShoppingList)
     const SERVICE_ACCOUNT_BASE64 =

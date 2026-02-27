@@ -15,8 +15,8 @@ if (fs.existsSync(envPath)) {
 }
 
 const required = [
-  "SHEET_ID",
-  "SHEET_TAB",
+  "GOOGLE_SHEET_ID",
+  "ALERTS_TAB",
   "GOOGLE_SERVICE_ACCOUNT_JSON_BASE64",
   "ONESIGNAL_APP_ID",
   "ONESIGNAL_API_KEY",

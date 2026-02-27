@@ -2,11 +2,11 @@
 import { google } from "googleapis";
 
 // ✅ FIX: use SHEET_ID as primary; fallback to GOOGLE_SHEET_ID for backward compatibility
-const GOOGLE_SHEET_ID = process.env.SHEET_ID || process.env.GOOGLE_SHEET_ID;
+const GOOGLE_SHEET_ID = process.env.GOOGLE_SHEET_ID;
 const SERVICE_ACCOUNT_BASE64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64;
 
-if (!GOOGLE_SHEET_ID)
-  throw new Error("Missing env: SHEET_ID (or GOOGLE_SHEET_ID)");
+if (!GOOGLE_SHEET_ID) throw new Error("Missing env: GOOGLE_SHEET_ID");
+
 if (!SERVICE_ACCOUNT_BASE64)
   throw new Error("Missing env: GOOGLE_SERVICE_ACCOUNT_JSON_BASE64");
 
