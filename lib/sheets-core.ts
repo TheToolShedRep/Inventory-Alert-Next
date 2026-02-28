@@ -181,17 +181,6 @@ function normalizeHeaderKey(h: any): string {
 async function readTabObjectsNormalized(tabName: string): Promise<any[]> {
   const sheets = getSheetsClient();
 
-  // const res = await withRetry(
-  //   () =>
-  //     sheets.spreadsheets.values.get({
-  //       spreadsheetId: GOOGLE_SHEET_ID!,
-  //       range: `${tabName}!A:Z`,
-  //     }),
-  //   `values.get:${tabName}`,
-  // );
-
-  // const values = res.data.values || [];
-
   const res = (await withRetry(
     () =>
       sheets.spreadsheets.values.get({
@@ -199,9 +188,9 @@ async function readTabObjectsNormalized(tabName: string): Promise<any[]> {
         range: `${tabName}!A:Z`,
       }),
     `values.get:${tabName}`,
-  )) as sheets_v4.Schema$ValueRange;
+  )) as any;
 
-  const values = res.values || [];
+  const values = res.data?.values || [];
 
   if (values.length <= 1) return [];
 
