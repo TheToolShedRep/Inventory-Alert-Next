@@ -1131,3 +1131,273 @@ I'm going to create a recovery branch.
 ```
 git checkout -b recovery-before-rollback
 ```
+
+````md
+# Postmortem: Shopping List Broke After Calibration Page Work
+
+**Date:** 2026-02-28  
+**System:** Inventory Alert System (Next.js + Google Sheets ledger)  
+**Impact:** `/api/shopping-list` returned an empty list (`count: 0`) even though Google Sheets clearly contained rows.
+
+---
+
+## Summary
+
+After finishing “Day 7” (structural build complete) I started adding a **calibration page** and other improvements. During this work, I made changes to how the system reads from Google Sheets. One change accidentally broke the helper that loads tab data (used by `Shopping_List` and `Shopping_Manual`), causing the shopping list API to return zero rows.
+
+This write-up documents:
+
+- What I tried to do (and why)
+- What broke
+- How I troubleshot it
+- How it was fixed
+
+---
+
+## What I Tried to Do
+
+### Goal
+
+While working on post-Day-7 improvements (including calibration workflow + alerts endpoints), I attempted to improve the robustness of Google Sheets access by adding:
+
+- Retry logic (to handle quota / transient failures)
+- Optional caching (to reduce read pressure)
+- More generalized “read tab as objects” helpers
+
+These changes were intended to make the system **more stable**, not to change shopping list behavior.
+
+---
+
+## What Broke
+
+### Symptom
+
+Calling the API returned an empty list:
+
+```bash
+curl "http://localhost:3000/api/shopping-list?includeHidden=1"
+# => {"ok":true,"count":0,"rows":[]}
+```
+````
+
+However, debug output proved the sheet had valid data:
+
+- Header row present
+- Multiple data rows present
+- Correct tab name (`Shopping_List`)
+
+So the system was **reading the sheet**, but failing to correctly parse values into rows.
+
+### Broken Code
+
+The bug was in the shared helper:
+
+- `lib/sheets-core.ts`
+- `readTabObjectsNormalized(tabName: string)`
+
+This helper is used by:
+
+- `getShoppingList()` → reads `Shopping_List` and `Shopping_Manual`
+- `getInventoryAdjustments()` → reads `Inventory_Adjustments`
+- Catalog enrichment reads (`readFirstExistingTabObjects()`)
+
+So this bug had the potential to impact multiple areas, but the main visible failure was the shopping list output.
+
+---
+
+## Root Cause
+
+### The Mistake
+
+When refactoring the Sheets read logic, I changed how the response from:
+
+```ts
+sheets.spreadsheets.values.get(...)
+```
+
+was being accessed.
+
+The Google Sheets API returns data in:
+
+```ts
+res.data.values;
+```
+
+But during refactor, the code incorrectly read:
+
+```ts
+res.values;
+```
+
+That meant the function always saw:
+
+```ts
+values = [];
+```
+
+and returned early:
+
+```ts
+if (values.length <= 1) return [];
+```
+
+So even though the sheet had rows, the parser exited as if it were empty.
+
+### Why It Happened
+
+This happened because I introduced a type cast (`Schema$ValueRange`) and attempted to treat the response like a raw ValueRange object rather than the full API response wrapper. The Google client wraps the payload under `.data`, so accessing `.values` directly is incorrect.
+
+---
+
+## Troubleshooting Steps (How the Bug Was Found)
+
+### 1) Confirm the system had real data
+
+I added temporary debug output to the API response and saw:
+
+- `debug_raw_row_count` showed data existed
+- `debug_raw_sample` showed header + rows
+
+Example debug evidence:
+
+```json
+"debug_raw_sample":[
+  ["timestamp","upc","product_name", ...],
+  ["2026-02-28T11:13:59.577Z","CROISSANT","Croissant", ...]
+]
+```
+
+This confirmed the sheet was not empty, and the issue was **parsing**.
+
+---
+
+### 2) Use `git bisect` to find when it broke
+
+I suspected the break happened after “Day 7” work, so I used `git bisect` to locate the first commit where shopping list output changed.
+
+Commands:
+
+```bash
+git bisect start
+git bisect bad                    # current commit is broken
+git bisect good <GOOD_COMMIT_HASH> # last known working commit
+```
+
+Then for each checked-out commit, I tested:
+
+```bash
+curl "http://localhost:3000/api/shopping-list?includeHidden=1"
+```
+
+Eventually, Git reported:
+
+> `0411e869... is the first bad commit`
+
+Commit message:
+
+- **0411e86 — “Add alert list and post. Add create alert route.”**
+
+This commit was large and included changes to `lib/sheets-core.ts` and other routes.
+
+---
+
+### 3) Inspect changes in the first bad commit
+
+I reviewed the commit:
+
+```bash
+git show 0411e86 --stat
+git show 0411e86 -- lib/sheets-core.ts
+```
+
+That led directly to the updated `readTabObjectsNormalized()` logic and the incorrect `.values` access.
+
+---
+
+### 4) Confirm only one version of the helper exists
+
+To prevent confusion from duplicate helpers, I confirmed the project had one definition:
+
+```bash
+git grep -n "function readTabObjectsNormalized"
+```
+
+Result:
+
+- `lib/sheets-core.ts:181`
+
+So the fix only needed to be made in one place.
+
+---
+
+## How It Was Fixed
+
+### Fix Applied
+
+In `readTabObjectsNormalized()`, ensure we read:
+
+✅ Correct:
+
+```ts
+const values = res.data?.values || [];
+```
+
+❌ Incorrect:
+
+```ts
+const values = res.values || [];
+```
+
+After fixing the response parsing, the endpoint immediately returned rows again:
+
+```bash
+curl "http://localhost:3000/api/shopping-list?includeHidden=1"
+# => count: 4, rows returned
+```
+
+---
+
+## Prevention / Lessons Learned
+
+### 1) The Sheets client response is always wrapped
+
+When using the official Google Sheets API client:
+
+- Data comes from `res.data.values`
+- Not `res.values`
+
+Any future refactor must keep this wrapper in mind.
+
+### 2) Add a safety assertion (optional)
+
+To catch this earlier, consider a guard like:
+
+```ts
+if (!Array.isArray(values)) {
+  throw new Error("Sheets read failed: values not found on response");
+}
+```
+
+### 3) Keep a lightweight regression test
+
+A single curl check is enough to detect this class of regression:
+
+```bash
+curl "http://localhost:3000/api/shopping-list?includeHidden=1" | jq '.count'
+```
+
+---
+
+## Final Outcome
+
+- Root cause identified via `git bisect`
+- Parsing bug fixed by restoring correct response access (`res.data.values`)
+- Shopping list returned correctly again
+- Confirmed single helper definition in codebase
+- Debug evidence validated the sheet itself was always fine
+
+---
+
+```
+
+```
