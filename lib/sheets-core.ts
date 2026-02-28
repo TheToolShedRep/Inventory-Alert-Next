@@ -841,14 +841,34 @@ export async function getShoppingList(opts?: {
     };
   }
 
+  // const computed: ShoppingListRow[] = computedRaw
+  //   .map((r: any) => ({ ...r, upc: normUpc(r.upc) }))
+  //   .filter((r) => String(r.upc ?? "").length > 0)
+  //   .map(enrichFromCatalog);
+
   const computed: ShoppingListRow[] = computedRaw
-    .map((r: any) => ({ ...r, upc: normUpc(r.upc) }))
-    .filter((r) => String(r.upc ?? "").length > 0)
+    .map((r: any) => {
+      const possibleUpc = r.upc || r.UPC || r.sku || r.SKU || r.code || r.id;
+
+      return {
+        ...r,
+        upc: normUpc(possibleUpc),
+      };
+    })
+    .filter((r) => String(r.upc ?? "").trim().length > 0)
     .map(enrichFromCatalog);
 
+  // const manual: ShoppingListRow[] = manualRaw
+  //   .map((r: any) => ({ ...r, upc: normUpc(r.upc) }))
+  //   .filter((r) => String(r.upc ?? "").length > 0)
+  //   .map(enrichFromCatalog);
+
   const manual: ShoppingListRow[] = manualRaw
-    .map((r: any) => ({ ...r, upc: normUpc(r.upc) }))
-    .filter((r) => String(r.upc ?? "").length > 0)
+    .map((r: any) => {
+      const possibleUpc = r.upc || r.UPC || r.sku || r.SKU || r.code || r.id;
+      return { ...r, upc: normUpc(possibleUpc) };
+    })
+    .filter((r) => String(r.upc ?? "").trim().length > 0)
     .map(enrichFromCatalog);
 
   const byUpc = new Map<string, ShoppingListRow>();

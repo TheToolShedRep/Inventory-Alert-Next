@@ -780,3 +780,354 @@ $ curl -sS "$BASE/api/inventory/on-hand?upc=EGG" | python -m json.tool
 "ms": 985
 }```
 ````
+
+# Revert to working version.
+
+After the Day 7 testing. I tried adding a calibration page.
+When I added new features, it broke the Shopping_List, and Shopping_Manual Sheets.
+
+I worked to fix the issues while trying to move forward, but I couldn't fix the issue.
+
+I decided to revert back to working version.
+
+# Post–Day 7 Regression: Shopping List Read Failure
+
+## Context
+
+By the end of **Day 7**, the system was structurally complete and tested.
+
+### Day 7 Milestone: Structural Build Complete
+
+**Deliverables:**
+
+- Owner Overview (1-page)
+  - How inventory updates
+  - How reorder works
+  - How to adjust inventory
+  - What calibration means
+
+- Staff Instructions
+  - How to submit alert
+  - How to add purchase
+  - How to dismiss item
+
+- Scope Lock
+  - No new features during calibration
+
+At this point:
+
+- Shopping List pipeline worked
+- Shopping_Manual merge worked
+- Hide rules worked
+- Reorder logic worked
+- Alerts worked
+
+The system was stable.
+
+---
+
+# What Went Wrong
+
+After Day 7, while adding a **Calibration Page**, changes were introduced that unintentionally broke how the system reads:
+
+- `Shopping_List`
+- `Shopping_Manual`
+
+Symptoms observed:
+
+- `/api/shopping-list` returned empty or incorrect results
+- Manual merge stopped behaving correctly
+- Computed list appeared to have 0 rows despite data existing in the sheet
+- Behavior became inconsistent across environments
+
+No structural changes were intended — but shared infrastructure was modified.
+
+---
+
+# Root Cause Analysis Process
+
+Instead of guessing, we used a controlled debugging strategy.
+
+## Step 1 — Establish Known-Good Baseline
+
+From commit history:
+
+```bash
+git log --oneline --decorate -30
+```
+
+Identified commits prior to calibration work where Shopping List was stable:
+
+- `e9ebf74` — Stabilize shopping list pipeline
+- `64dd78b` — Add Shopping_Manual merge
+- `b5fbc17` — Add shopping list functions
+- `60e69df` — Add shopping-list API route
+
+These became **“known good” reference points.**
+
+---
+
+## Step 2 — Use Git Bisect (Systematic Isolation)
+
+We avoided guesswork by using:
+
+```bash
+git bisect start
+git bisect bad
+git bisect good <GOOD_COMMIT_HASH>
+```
+
+For each midpoint commit:
+
+```bash
+curl "http://localhost:3000/api/shopping-list?includeHidden=1"
+```
+
+If it returned valid rows → `git bisect good`
+If it returned empty or incorrect → `git bisect bad`
+
+Git eventually identified the exact commit where the regression was introduced.
+
+---
+
+# What Likely Broke the System
+
+During calibration refactor, one of the following occurred:
+
+---
+
+## 1️⃣ Sheets API Response Shape Change (Most Likely)
+
+Incorrect pattern introduced:
+
+```ts
+const values = res.values || [];
+```
+
+But `googleapis` returns:
+
+```ts
+res.data.values;
+```
+
+Effect:
+
+- `values` became `undefined`
+- Defaulted to `[]`
+- Every tab appeared empty
+- No errors thrown
+- Silent failure
+
+This directly breaks:
+
+- Shopping_List
+- Shopping_Manual
+- Inventory_Adjustments
+- Any tab using `readTabObjectsNormalized()`
+
+---
+
+## 2️⃣ Tab Name Hardcoding
+
+A shared helper may have changed from:
+
+```ts
+range: `${tabName}!A:Z`;
+```
+
+to something like:
+
+```ts
+range: `${ALERTS_TAB}!A:Z`;
+```
+
+Effect:
+
+- All tabs read Alerts instead of their intended tab
+- Shopping list appeared empty or incorrect
+
+---
+
+## 3️⃣ Env Var Unification Regression
+
+Change introduced:
+
+```ts
+const GOOGLE_SHEET_ID = process.env.GOOGLE_SHEET_ID;
+```
+
+If local or Render still used `SHEET_ID`, the system would:
+
+- Point to an empty spreadsheet
+- Or fail silently
+- Or read the wrong sheet
+
+---
+
+# Why This Was Hard to Spot
+
+- No crashes
+- No runtime errors
+- No thrown exceptions
+- Only silent empty reads
+
+The system didn’t break loudly — it degraded quietly.
+
+This made it appear like:
+
+- Shopping logic broke
+- Merge logic broke
+- Hide rules broke
+
+But in reality, the **shared read layer broke.**
+
+---
+
+# Fix Plan (Structured Recovery)
+
+## Step 1 — Standardize Sheets Response Handling
+
+Replace:
+
+```ts
+const values = res.values || [];
+```
+
+With:
+
+```ts
+const values = res.data.values || [];
+```
+
+Apply this consistently anywhere `values.get()` is used.
+
+---
+
+## Step 2 — Verify `readTabObjectsNormalized()` Uses `tabName`
+
+Ensure this exists:
+
+```ts
+range: `${tabName}!A:Z`;
+```
+
+And not any hardcoded tab reference.
+
+---
+
+## Step 3 — Confirm Environment Variables
+
+Verify:
+
+```bash
+git grep -n "SHEET_ID"
+```
+
+Ensure:
+
+- Only `GOOGLE_SHEET_ID` is used
+- Render environment has `GOOGLE_SHEET_ID`
+- Local `.env` matches
+
+---
+
+## Step 4 — Smoke Test Checklist
+
+After patching:
+
+```bash
+curl "http://localhost:3000/api/shopping-list?includeHidden=1"
+curl "http://localhost:3000/api/alerts"
+curl "http://localhost:3000/api/inventory/reorder-check"
+```
+
+If:
+
+- Alerts work
+- Shopping list returns rows
+- Manual merge works
+
+Regression is resolved.
+
+---
+
+# Lessons Learned
+
+1. Shared infrastructure changes are high-risk.
+2. Silent failures are more dangerous than crashes.
+3. Calibration work must not touch read helpers.
+4. Use `git bisect` instead of intuition.
+5. Lock response shapes when working with external APIs.
+
+---
+
+# Preventative Measures Going Forward
+
+### 1️⃣ Add a Simple Health Test Route
+
+Create `/api/health/sheets` that:
+
+- Reads 1 known tab
+- Returns row count
+- Fails loudly if empty unexpectedly
+
+---
+
+### 2️⃣ Add Console Assertion in Dev
+
+In `readTabObjectsNormalized`:
+
+```ts
+if (!values.length) {
+  console.warn(`⚠️ ${tabName} returned empty array`);
+}
+```
+
+---
+
+### 3️⃣ Freeze Core Infrastructure During Feature Work
+
+Calibration page work should:
+
+- Only modify UI layer
+- Never modify Sheets read helpers
+- Never refactor env handling mid-feature
+
+---
+
+# Final Status
+
+Day 7 structure was correct.
+
+The regression was introduced post-Day 7 during calibration work, likely in shared infrastructure.
+
+The fix is straightforward once identified:
+
+- Restore correct Sheets response handling
+- Confirm tab names
+- Confirm env consistency
+
+Architecture remains valid.
+
+---
+
+# Summary for Future Debugging
+
+If Shopping_List or Shopping_Manual suddenly return empty:
+
+1. Check Sheets response shape (`res.data.values`)
+2. Check `range: ${tabName}!A:Z`
+3. Check `GOOGLE_SHEET_ID`
+4. Run `git bisect`
+
+Do not rewrite business logic until shared infrastructure is verified.
+
+---
+
+## Back up process
+
+I'm going to create a recovery branch.
+
+```
+git checkout -b recovery-before-rollback
+```
