@@ -2,27 +2,20 @@
 import { google } from "googleapis";
 import { unstable_cache } from "next/cache";
 import type { sheets_v4 } from "googleapis";
+import { appendRowHeaderDriven } from "@/lib/sheets/sheets-utils";
 
 /**
  * ============================
  * ENV
  * ============================
  */
-// const GOOGLE_SHEET_ID = process.env.GOOGLE_SHEET_ID; // your project uses SHEET_ID
-// ✅ CHANGE: Support both env names so all routes read the same spreadsheet
 const GOOGLE_SHEET_ID = process.env.GOOGLE_SHEET_ID;
-
-if (!GOOGLE_SHEET_ID) {
-  throw new Error("Missing env: GOOGLE_SHEET_ID");
-}
+if (!GOOGLE_SHEET_ID) throw new Error("Missing env: GOOGLE_SHEET_ID");
 
 const ALERTS_TAB = process.env.ALERTS_TAB;
 const SERVICE_ACCOUNT_BASE64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64;
 
-if (!GOOGLE_SHEET_ID) throw new Error("Missing env: GOOGLE_SHEET_ID");
-if (!ALERTS_TAB) {
-  throw new Error("Missing env: ALERTS_TAB");
-}
+if (!ALERTS_TAB) throw new Error("Missing env: ALERTS_TAB");
 if (!SERVICE_ACCOUNT_BASE64)
   throw new Error("Missing env: GOOGLE_SERVICE_ACCOUNT_JSON_BASE64");
 
@@ -144,13 +137,13 @@ async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
  * Exported helper for routes/pages.
  * Business-local date string (YYYY-MM-DD).
  */
-export function getBusinessDateNY(): string {
+export function getBusinessDateNY(d = new Date()): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: BUSINESS_TIMEZONE,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).formatToParts(new Date());
+  }).formatToParts(d);
 
   const yyyy = parts.find((p) => p.type === "year")?.value ?? "1970";
   const mm = parts.find((p) => p.type === "month")?.value ?? "01";
@@ -172,11 +165,8 @@ function normalizeHeaderKey(h: any): string {
 }
 
 /**
- * Read a tab as header-driven objects, with header normalization:
- * - keys are normalized via normalizeHeaderKey
- *
- * ✅ FIX: This MUST read the tabName you pass in.
- * Before, it incorrectly read ALERTS_TAB for every tab.
+ * Read a tab as header-driven objects, with header normalization.
+ * ✅ FIX: reads the tabName you pass in.
  */
 async function readTabObjectsNormalized(tabName: string): Promise<any[]> {
   const sheets = getSheetsClient();
@@ -191,7 +181,6 @@ async function readTabObjectsNormalized(tabName: string): Promise<any[]> {
   )) as any;
 
   const values = res.data?.values || [];
-
   if (values.length <= 1) return [];
 
   const headers = (values[0] || []).map((h: any) => normalizeHeaderKey(h));
@@ -206,7 +195,6 @@ async function readTabObjectsNormalized(tabName: string): Promise<any[]> {
 
 /**
  * Try multiple tab names and return the first that exists (or [] if none exist).
- * (Used for Option B Catalog enrichment)
  */
 async function readFirstExistingTabObjects(
   tabNames: string[],
@@ -214,19 +202,14 @@ async function readFirstExistingTabObjects(
   for (const name of tabNames) {
     try {
       const rows = await readTabObjectsNormalized(name);
-      // If the sheet exists but is empty, that's still valid.
       return { tabName: name, rows };
     } catch {
-      // Tab doesn't exist or not accessible -> try next
+      // try next
     }
   }
   return { tabName: null, rows: [] };
 }
 
-/**
- * Safely read a value from an object using multiple possible keys.
- * Returns "" if nothing found (or only whitespace).
- */
 function pick(obj: any, keys: string[]): string {
   for (const k of keys) {
     const v = obj?.[k];
@@ -239,25 +222,6 @@ function pick(obj: any, keys: string[]): string {
 /**
  * Detect whether Alerts sheet has a `source` column by reading header row.
  */
-// async function hasSourceColumn(sheets: any): Promise<boolean> {
-//   const res = await withRetry(
-//     () =>
-//       sheets.spreadsheets.values.get({
-//         spreadsheetId: GOOGLE_SHEET_ID!,
-//         range: `${ALERTS_TAB}!1:1`,
-//       }),
-//     "alerts.header.get",
-//   );
-
-//   const headers = (res.data.values?.[0] || []).map((h: any) =>
-//     String(h || "")
-//       .trim()
-//       .toLowerCase(),
-//   );
-
-//   return headers.includes("source");
-// }
-
 async function hasSourceColumn(sheets: any): Promise<boolean> {
   const res = (await withRetry(
     () =>
@@ -298,7 +262,6 @@ export async function createAlert(input: {
   if (!qty) throw new Error("Missing required field: qty");
   if (!location) throw new Error("Missing required field: location");
 
-  // Prefer crypto.randomUUID() (Node 18+). Fallback for older runtimes.
   const alertId =
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? (crypto as any).randomUUID()
@@ -433,7 +396,6 @@ async function _getAllAlertsUncached(): Promise<AlertRow[]> {
 
 /**
  * Cached getAllAlerts to reduce Sheets read quota usage.
- * Start with 10s. If you still see 429s, bump to 30s.
  */
 export const getAllAlerts = unstable_cache(
   async () => _getAllAlertsUncached(),
@@ -473,7 +435,6 @@ export async function getTodayChecklist(): Promise<AlertRow[]> {
   const alerts = await getTodayAlerts();
 
   const latestByKey = new Map<string, AlertRow>();
-
   for (const alert of alerts) {
     const key = `${alert.item}|${alert.location}`;
     const existing = latestByKey.get(key);
@@ -490,8 +451,6 @@ export async function getTodayChecklist(): Promise<AlertRow[]> {
  * ============================
  * Shopping_Actions (state layer)
  * ============================
- * Expected sheet headers (case-insensitive):
- * date | upc | action | note | actor
  */
 export async function appendShoppingAction(input: {
   date: string; // YYYY-MM-DD
@@ -555,9 +514,6 @@ export async function appendShoppingAction(input: {
   });
 }
 
-/**
- * Read Shopping_Actions (header-driven objects)
- */
 async function getShoppingActions(): Promise<ShoppingActionRow[]> {
   const sheets = getSheetsClient();
 
@@ -601,6 +557,46 @@ export type InventoryAdjustmentRow = {
   reason?: string;
   actor?: string;
 };
+
+// ===============================
+// Calibration_Log (append-only ledger)
+// ===============================
+
+export type CalibrationLogInput = {
+  timestamp: string; // ISO
+  business_date?: string; // optional; defaults to NY business date
+  upc: string;
+  calibration_type: string; // e.g. "reorder_point"
+  before_value?: string;
+  after_value?: string;
+  delta?: number | string;
+  reason?: string;
+  actor?: string;
+  source?: string; // e.g. "scan" | "manager" | "system"
+  notes?: string;
+};
+
+export async function appendCalibrationLog(input: CalibrationLogInput) {
+  const tabName = process.env.CALIBRATION_LOG_TAB || "Calibration_Log";
+  const business_date = input.business_date || getBusinessDateNY(new Date());
+
+  return appendRowHeaderDriven({
+    tabName,
+    rowObject: {
+      timestamp: input.timestamp,
+      business_date,
+      upc: normUpc(input.upc),
+      calibration_type: input.calibration_type,
+      before_value: input.before_value ?? "",
+      after_value: input.after_value ?? "",
+      delta: input.delta ?? "",
+      reason: input.reason ?? "",
+      actor: input.actor ?? "",
+      source: input.source ?? "system",
+      notes: input.notes ?? "",
+    },
+  });
+}
 
 /**
  * ============================
@@ -688,9 +684,6 @@ export async function appendInventoryAdjustment(input: {
   });
 }
 
-/**
- * Read Inventory_Adjustments as objects (normalized headers + normalized UPC).
- */
 export async function getInventoryAdjustments(opts?: {
   date?: string; // YYYY-MM-DD
 }): Promise<InventoryAdjustmentRow[]> {
@@ -714,9 +707,6 @@ export async function getInventoryAdjustments(opts?: {
   );
 }
 
-/**
- * Convenience: sum adjustments by UPC (for a given date or all-time).
- */
 export async function getAdjustmentDeltaByUpc(opts?: {
   date?: string; // YYYY-MM-DD (business date)
 }): Promise<Map<string, number>> {
@@ -750,13 +740,11 @@ export async function getShoppingList(opts?: {
   const includeHidden = !!opts?.includeHidden;
 
   const SHOPPING_LIST_TAB = process.env.SHOPPING_LIST_TAB || "Shopping_List";
-
   const SHOPPING_MANUAL_TAB =
     process.env.SHOPPING_MANUAL_TAB || "Shopping_Manual";
 
   const [computedRaw, manualRaw] = await Promise.all([
     readTabObjectsNormalized(SHOPPING_LIST_TAB),
-
     readTabObjectsNormalized(SHOPPING_MANUAL_TAB).catch((e) => {
       console.warn(
         "⚠️ Failed reading manual tab:",
@@ -766,11 +754,6 @@ export async function getShoppingList(opts?: {
       return [];
     }),
   ]);
-
-  console.log("SHOPPING_LIST_TAB:", SHOPPING_LIST_TAB);
-  console.log("SHOPPING_MANUAL_TAB:", SHOPPING_MANUAL_TAB);
-  console.log("computedRaw length:", computedRaw.length);
-  console.log("manualRaw length:", manualRaw.length);
 
   const catalogCandidates = [
     "Catalog",
@@ -809,12 +792,7 @@ export async function getShoppingList(opts?: {
       reorder_point:
         String(row.reorder_point ?? "").trim() !== ""
           ? row.reorder_point
-          : pick(cat, [
-              "reorder_point",
-              "reorderpoint",
-              "reorder_level",
-              "reorder",
-            ]),
+          : pick(cat, ["reorder_point", "reorder_level", "reorder"]),
       par_level:
         String(row.par_level ?? "").trim() !== ""
           ? row.par_level
@@ -830,27 +808,13 @@ export async function getShoppingList(opts?: {
     };
   }
 
-  // const computed: ShoppingListRow[] = computedRaw
-  //   .map((r: any) => ({ ...r, upc: normUpc(r.upc) }))
-  //   .filter((r) => String(r.upc ?? "").length > 0)
-  //   .map(enrichFromCatalog);
-
   const computed: ShoppingListRow[] = computedRaw
     .map((r: any) => {
       const possibleUpc = r.upc || r.UPC || r.sku || r.SKU || r.code || r.id;
-
-      return {
-        ...r,
-        upc: normUpc(possibleUpc),
-      };
+      return { ...r, upc: normUpc(possibleUpc) };
     })
     .filter((r) => String(r.upc ?? "").trim().length > 0)
     .map(enrichFromCatalog);
-
-  // const manual: ShoppingListRow[] = manualRaw
-  //   .map((r: any) => ({ ...r, upc: normUpc(r.upc) }))
-  //   .filter((r) => String(r.upc ?? "").length > 0)
-  //   .map(enrichFromCatalog);
 
   const manual: ShoppingListRow[] = manualRaw
     .map((r: any) => {
@@ -1034,9 +998,6 @@ export async function shouldSendReorderEmail(opts: {
   };
 }
 
-/**
- * Header-driven append to Reorder_Email_Log
- */
 export async function appendReorderEmailLogRow(input: {
   timestamp: string;
   business_date: string;
@@ -1164,9 +1125,12 @@ export async function resolveAlertById(alertId: string): Promise<boolean> {
   return updateAlertStatusById(alertId, "resolved");
 }
 
-// ===============================
-// Ensure Catalog Item Exists
-// ===============================
+/**
+ * ===============================
+ * Ensure Catalog Item Exists
+ * ===============================
+ * NOTE: This remains range-based for now, but ends correctly.
+ */
 export async function ensureCatalogItem(input: {
   upc?: string;
   product_name: string;
@@ -1176,20 +1140,17 @@ export async function ensureCatalogItem(input: {
   const upc = String(input.upc || "").trim();
   const product_name = String(input.product_name || "").trim();
 
-  if (!product_name) {
-    throw new Error("Missing product_name");
-  }
+  if (!product_name) throw new Error("Missing product_name");
 
-  const sheets = await getSheetsClient(); // use your existing client getter
+  const sheets = getSheetsClient();
+
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: GOOGLE_SHEET_ID!,
     range: `${CATALOG_TAB}!A:Z`,
   });
 
   const values = res.data.values || [];
-  if (values.length === 0) {
-    throw new Error("Catalog sheet missing headers");
-  }
+  if (values.length === 0) throw new Error("Catalog sheet missing headers");
 
   const header = values[0].map((h) => String(h).trim());
   const idx = (col: string) => header.indexOf(col);
@@ -1198,14 +1159,11 @@ export async function ensureCatalogItem(input: {
   const i_name = idx("product_name");
   const i_last = idx("last_seen");
 
-  if (i_name === -1) {
-    throw new Error("Catalog missing 'product_name' header");
-  }
+  if (i_name === -1) throw new Error("Catalog missing 'product_name' header");
 
   let found = false;
   let rowIndex = -1;
 
-  // Try match by UPC first
   if (upc && i_upc !== -1) {
     for (let r = 1; r < values.length; r++) {
       if (String(values[r][i_upc] || "").trim() === upc) {
@@ -1216,7 +1174,6 @@ export async function ensureCatalogItem(input: {
     }
   }
 
-  // Fallback: match by name
   if (!found) {
     const norm = product_name.toLowerCase().trim();
     for (let r = 1; r < values.length; r++) {
@@ -1231,7 +1188,6 @@ export async function ensureCatalogItem(input: {
     }
   }
 
-  // If found → update last_seen
   if (found) {
     if (i_last !== -1) {
       const sheetRow = rowIndex + 1;
@@ -1248,7 +1204,6 @@ export async function ensureCatalogItem(input: {
     return { created: false };
   }
 
-  // If not found → append new row
   const newRow = new Array(header.length).fill("");
 
   const set = (col: string, val: any) => {

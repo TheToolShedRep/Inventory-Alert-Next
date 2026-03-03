@@ -195,76 +195,6 @@ export default function ScanCamera({
 
   /**
    * ✅ Photo decode (reliable on iOS)
-   * We downscale + add contrast before ZXing decodeFromCanvas.
-   */
-  // const decodeImageFile = useCallback(
-  //   async (file: File) => {
-  //     if (!file) return;
-
-  //     setBusy(true);
-  //     setCameraError("");
-  //     setStatus("Scanning photo…");
-
-  //     const hints = new Map();
-  //     hints.set(DecodeHintType.POSSIBLE_FORMATS, [
-  //       BarcodeFormat.UPC_A,
-  //       BarcodeFormat.UPC_E,
-  //       BarcodeFormat.EAN_13,
-  //       BarcodeFormat.EAN_8,
-  //       BarcodeFormat.CODE_128,
-  //     ]);
-
-  //     const reader = new BrowserMultiFormatReader(hints);
-
-  //     let objectUrl = "";
-  //     try {
-  //       const img = new Image();
-  //       objectUrl = URL.createObjectURL(file);
-
-  //       await new Promise<void>((resolve, reject) => {
-  //         img.onload = () => resolve();
-  //         img.onerror = () => reject(new Error("Could not load image"));
-  //         img.src = objectUrl;
-  //       });
-
-  //       // ✅ Downscale huge iPhone images (critical)
-  //       const MAX_WIDTH = 1000;
-  //       const scale = Math.min(1, MAX_WIDTH / img.width);
-
-  //       const canvas = document.createElement("canvas");
-  //       canvas.width = Math.max(1, Math.floor(img.width * scale));
-  //       canvas.height = Math.max(1, Math.floor(img.height * scale));
-
-  //       const ctx = canvas.getContext("2d");
-  //       if (!ctx) throw new Error("Canvas not supported");
-
-  //       // Slightly stronger contrast helps phone photos
-  //       ctx.filter = "contrast(1.35)";
-  //       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-  //       const result: Result = await reader.decodeFromCanvas(canvas);
-  //       const value = result?.getText()?.trim();
-
-  //       if (!value) throw new Error("No barcode found in image.");
-
-  //       // success → stop camera + advance
-  //       stopCamera();
-  //       onDetected(value);
-  //     } catch (e: any) {
-  //       setBusy(false);
-  //       setStatus("Could not read barcode. Try again or use manual entry.");
-  //       setCameraError(e?.message || "Could not read barcode from photo.");
-  //     } finally {
-  //       try {
-  //         if (objectUrl) URL.revokeObjectURL(objectUrl);
-  //       } catch {}
-  //     }
-  //   },
-  //   [onDetected, stopCamera],
-  // );
-
-  /**
-   * ✅ Photo decode (reliable on iOS)
    * 2-pass strategy:
    *  - Pass 1: decode full image (downscaled + contrast)
    *  - Pass 2: if fail, decode a centered crop strip (effectively "zoom in")
@@ -443,9 +373,19 @@ export default function ScanCamera({
                 </button>
               )}
 
-              <div className="text-xs text-neutral-600">
+              {/* <div className="text-xs text-neutral-600">
                 iPhone browsers/PWA often can’t decode live barcodes reliably.
                 Photo scan is the most consistent option.
+              </div> */}
+
+              <div className="space-y-1 text-xs text-neutral-600">
+                <div>
+                  iPhone browsers/PWA often can’t decode live barcode reliably.
+                  Photo scan is the most consistent option.
+                </div>
+                <div className="font-medium text-neutral-800">
+                  Tip: Move closer and fill the frame with the barcode.
+                </div>
               </div>
             </>
           ) : (
