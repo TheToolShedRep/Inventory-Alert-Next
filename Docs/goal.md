@@ -295,3 +295,38 @@ Vendor integration
 Cosmetic redesign
 
 Finish the core machine.
+
+---
+
+# New Goals
+
+## Step: Add `Calibration_Log` Tab (Headers Only)
+
+Create a new Google Sheets tab named:
+
+- **Calibration_Log**
+
+Add **only the header row** (Row 1) with these columns:
+
+| Column | Header        |
+| ------ | ------------- |
+| A      | timestamp     |
+| B      | business_date |
+| C      | upc           |
+| D      | field         |
+| E      | old_value     |
+| F      | new_value     |
+| G      | reason        |
+| H      | actor         |
+| I      | source        |
+| J      | request_id    |
+
+### Notes
+
+- `timestamp` should be an ISO string (e.g. `2026-03-01T14:22:10.123Z`)
+- `business_date` should be NY-local `YYYY-MM-DD`
+- `field` is what was calibrated (examples: `reorder_point`, `par_level`, `base_unit`, `preferred_vendor`)
+- `source` can be `calibration_page`
+- `request_id` helps trace issues across logs (uuid or generated id)
+
+This tab is **append-only** (ledger style). No formulas needed.

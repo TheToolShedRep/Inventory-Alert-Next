@@ -1401,3 +1401,19 @@ curl "http://localhost:3000/api/shopping-list?includeHidden=1" | jq '.count'
 ```
 
 ```
+
+## Calibration Page: Rule #1 (Do Not Break Shopping)
+
+Yes — we can add a calibration page **without touching the shopping-list pipeline**.
+
+**Key principle:**  
+The calibration UI must call **dedicated API routes** that **append** calibration data to ledger-style tabs (or only update a calibration-specific tab).
+
+**Hard rule:**  
+Do **not** modify:
+
+- `readTabObjectsNormalized()`
+- the Shopping List merge logic (`Shopping_List` + `Shopping_Manual`)
+- hide rules / action logic for shopping
+
+Calibration must be isolated. Shopping stays stable.
