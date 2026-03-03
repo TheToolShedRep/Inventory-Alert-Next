@@ -175,3 +175,66 @@ At completion of this documentation:
 - Structural build is complete
 
 System moves from “Building Phase” to “Operational Phase.”
+
+# UPC Lookup Production Hardening
+
+## Why this change
+
+The `/api/upc-lookup` endpoint calls a paid UPC provider (EAN-Search).  
+During staging we want to avoid paying for external requests, but in production/testing we want reliable lookups.
+
+We also need to prevent public abuse (anyone hitting the endpoint repeatedly and draining the API token).
+
+## What changed
+
+We updated `app/api/upc-lookup/route.ts` to add:
+
+1. **Auth gating**
+   - Allows access only if:
+     - Request has `x-api-key` matching `INTERNAL_API_KEY`, OR
+     - Request comes from an authenticated Clerk user
+   - Prevents token abuse and protects paid quota.
+
+2. **Production toggle**
+   - Controlled by `ENABLE_UPC_LOOKUP`
+   - When disabled (`false`), endpoint returns `503` with a clear message.
+   - Staging/dev can run without a paid UPC token.
+
+3. **Catalog-first shortcut**
+   - If the UPC already exists in our `Catalog`, we return the Catalog name immediately.
+   - This avoids paid lookups for known items and makes scans faster.
+
+4. **In-memory TTL cache**
+   - Repeated scans of the same UPC during a shopping run return from cache.
+   - Cache TTL: 7 days (resets on deploy/restart, which is fine).
+
+5. **Raw provider data only in dev**
+   - The provider `raw` response is now excluded in production unless explicitly enabled.
+   - This reduces payload size and avoids leaking provider data.
+
+## Required environment variables
+
+Production (Render):
+
+- `ENABLE_UPC_LOOKUP=true`
+- `UPC_API_KEY=...`
+- `UPC_API_BASE_URL=https://api.ean-search.org/api` (optional)
+- `INTERNAL_API_KEY=...`
+- `GOOGLE_SHEET_ID=...` (already required by sheets logic)
+
+Staging/dev:
+
+- `ENABLE_UPC_LOOKUP=false`
+- `UPC_API_KEY` can be blank
+
+Optional debug:
+
+- `DEBUG_UPC_LOOKUP_RAW=true` (only set temporarily if debugging provider response)
+
+## Expected behavior / test checklist
+
+1. **Logged out user** requesting `/api/upc-lookup?upc=...` → `401 Unauthorized`
+2. **Logged in Clerk user** → `200 { ok: true, ... }`
+3. With `ENABLE_UPC_LOOKUP=false` → `503` (and UI falls back to manual entry)
+4. Scan a UPC already in Catalog → response includes `source: "catalog"`
+5. Scan the same UPC twice → second response includes `source: "memory_cache"`
