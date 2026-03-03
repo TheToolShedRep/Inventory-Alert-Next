@@ -101,7 +101,6 @@ export default function ScanCamera({
         await videoRef.current.play();
       }
 
-      setBusy(false);
       setCameraStarted(true);
 
       // ✅ Status messaging depends on capability
@@ -166,6 +165,10 @@ export default function ScanCamera({
             if (value) {
               setBusy(true);
               stopCamera();
+
+              // ✅ Important: clear busy so UI doesn’t get stuck if parent doesn’t remount
+              setBusy(false);
+
               onDetected(value);
               return;
             }
@@ -240,7 +243,6 @@ export default function ScanCamera({
         const ctx = canvas.getContext("2d");
         if (!ctx) throw new Error("Canvas not supported");
 
-        // Helper: try decode from whatever is currently drawn on canvas
         const tryDecode = async () => {
           const result: Result = await reader.decodeFromCanvas(canvas);
           const value = result?.getText()?.trim();
@@ -262,23 +264,18 @@ export default function ScanCamera({
 
         // -------------------------
         // Pass 2: center crop strip
-        // (only if full image fails)
         // -------------------------
         if (!value) {
-          // We crop a wide horizontal band from the center of the image.
-          // This "zooms in" on where users typically frame the barcode.
           const cropW = Math.floor(canvas.width * 0.8); // 80% width
           const cropH = Math.floor(canvas.height * 0.35); // 35% height band
 
           const sx = Math.max(0, Math.floor((canvas.width - cropW) / 2));
           const sy = Math.max(0, Math.floor((canvas.height - cropH) / 2));
 
-          // Redraw: take the crop and stretch it to fill the canvas
           ctx.setTransform(1, 0, 0, 1, 0, 0);
           ctx.clearRect(0, 0, canvas.width, canvas.height);
 
           ctx.filter = "contrast(1.55)";
-          // Draw from existing canvas region (faster than re-drawing from img)
           ctx.drawImage(
             canvas,
             sx,
@@ -301,6 +298,10 @@ export default function ScanCamera({
         if (!value) throw new Error("No barcode found in image.");
 
         stopCamera();
+
+        // ✅ Clear busy on success
+        setBusy(false);
+
         onDetected(value);
       } catch (e: any) {
         setBusy(false);
@@ -342,7 +343,6 @@ export default function ScanCamera({
         />
 
         <div className="mt-2 space-y-2">
-          {/* ✅ iPhone: Photo scan is PRIMARY (because live decode is not supported here) */}
           {isIOS ? (
             <>
               <button
@@ -354,7 +354,6 @@ export default function ScanCamera({
                 Take Photo to Scan (Recommended)
               </button>
 
-              {/* Optional: allow starting camera just to help frame the barcode */}
               {!cameraStarted ? (
                 <button
                   type="button"
@@ -373,11 +372,6 @@ export default function ScanCamera({
                 </button>
               )}
 
-              {/* <div className="text-xs text-neutral-600">
-                iPhone browsers/PWA often can’t decode live barcodes reliably.
-                Photo scan is the most consistent option.
-              </div> */}
-
               <div className="space-y-1 text-xs text-neutral-600">
                 <div>
                   iPhone browsers/PWA often can’t decode live barcode reliably.
@@ -389,7 +383,6 @@ export default function ScanCamera({
               </div>
             </>
           ) : (
-            /* ✅ Non-iPhone: keep live scan button as primary */
             <>
               {!cameraStarted ? (
                 <button
@@ -443,6 +436,10 @@ export default function ScanCamera({
               const digits = (manual || "").replace(/\D/g, "");
               if (!digits) return;
               setBusy(true);
+
+              // ✅ Clear busy immediately so the UI doesn’t stick if parent doesn’t remount
+              setBusy(false);
+
               onDetected(digits);
             }}
             className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
