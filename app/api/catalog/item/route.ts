@@ -69,7 +69,15 @@ function normalizeHeaderKey(h: any) {
 
 /**
  * GET /api/catalog/item?upc=EGG
- * Reads from Catalog and returns normalized fields.
+ * GET /api/catalog/item?upc=012345678901  (barcode_upc)
+ *
+ * ✅ Supports BOTH:
+ * - Catalog.upc (pseudo/ingredient key like "EGG")
+ * - Catalog.barcode_upc (real scannable UPC like "012345678901")
+ *
+ * Returns:
+ * - ingredient_upc: always the pseudo key (Catalog.upc)
+ * - barcode_upc: whatever is stored on the row (if present)
  */
 export async function GET(req: Request) {
   const { userId } = await auth();
@@ -83,9 +91,9 @@ export async function GET(req: Request) {
 
   try {
     const url = new URL(req.url);
-    const upc = up(url.searchParams.get("upc"));
+    const queryUpc = up(url.searchParams.get("upc"));
 
-    if (!upc) {
+    if (!queryUpc) {
       return NextResponse.json(
         { ok: false, error: "Missing ?upc=EGG" },
         { status: 400 },
@@ -93,21 +101,38 @@ export async function GET(req: Request) {
     }
 
     const catalog = await readTabAsObjects("Catalog");
-    const row = catalog.rows.find((r) => up(r["upc"]) === upc);
+
+    // ✅ Match by pseudo upc OR barcode_upc
+    const row = catalog.rows.find((r) => {
+      const pseudo = up(r["upc"]);
+      const barcode = up(r["barcode_upc"]);
+      return pseudo === queryUpc || barcode === queryUpc;
+    });
 
     if (!row) {
       return NextResponse.json({
         ok: true,
         found: false,
-        upc,
+        upc: queryUpc,
       });
     }
+
+    const ingredient_upc = up(row["upc"]) || queryUpc;
 
     return NextResponse.json({
       ok: true,
       found: true,
-      upc,
-      product_name: norm(row["product_name"]) || upc,
+
+      // echo what the user asked for
+      upc: queryUpc,
+
+      // ✅ canonical key used by Recipes/inventory math
+      ingredient_upc,
+
+      // optional (debug/visibility)
+      barcode_upc: norm(row["barcode_upc"]) || "",
+
+      product_name: norm(row["product_name"]) || ingredient_upc,
       base_unit: norm(row["base_unit"]) || "",
       reorder_point: toNumber(row["reorder_point"]),
       par_level: toNumber(row["par_level"]),
@@ -134,6 +159,8 @@ export async function GET(req: Request) {
  * - Updates the Catalog row for a UPC (reorder_point/par_level/vendor/location/etc)
  * - If UPC row doesn't exist, creates it (header-driven)
  *
+ * ✅ Also allows patching "barcode_upc" now (safe because you appended it to the end)
+ *
  * Auth:
  * - Clerk user OR internal key
  *
@@ -145,7 +172,8 @@ export async function GET(req: Request) {
  *     "par_level": 60,
  *     "preferred_vendor": "Walmart",
  *     "default_location": "Kitchen",
- *     "notes": "Calibrated after running out early"
+ *     "notes": "Calibrated after running out early",
+ *     "barcode_upc": "012345678901"
  *   }
  * }
  */
@@ -188,6 +216,7 @@ export async function POST(req: Request) {
       "default_location",
       "active",
       "notes",
+      "barcode_upc", // ✅ NEW
     ]);
 
     const cleanedPatch: Record<string, any> = {};
@@ -202,7 +231,7 @@ export async function POST(req: Request) {
         {
           ok: false,
           error:
-            "No valid patch fields. Allowed: reorder_point, par_level, preferred_vendor, default_location, product_name, base_unit, active, notes",
+            "No valid patch fields. Allowed: reorder_point, par_level, preferred_vendor, default_location, product_name, base_unit, active, notes, barcode_upc",
         },
         { status: 400 },
       );
@@ -238,14 +267,13 @@ export async function POST(req: Request) {
       throw new Error("Catalog missing required header: product_name");
     }
 
-    // Pull sheet values to find existing row by UPC
+    // Pull sheet values to find existing row by UPC (pseudo upc only)
     const valuesRes = await sheets.spreadsheets.values.get({
       spreadsheetId: sheetId,
       range: `${TAB}!A:Z`,
     });
 
     const values = valuesRes.data.values || [];
-    // values[0] is header row
     const upcIdx = headerKeyToIndex.get("upc")!;
 
     let foundRowIndex = -1; // 0-based index inside `values`
@@ -260,14 +288,17 @@ export async function POST(req: Request) {
     // Helper to coerce certain fields
     const coerce = (key: string, v: any) => {
       if (key === "reorder_point" || key === "par_level") {
-        // allow number or numeric string; store blank if invalid
         const n = toNumber(v);
         return n === null ? "" : String(n);
       }
       if (key === "active") {
-        // store "true"/"false" strings if user passes boolean
         if (typeof v === "boolean") return v ? "true" : "false";
         return norm(v);
+      }
+      if (key === "barcode_upc") {
+        // keep digits only (common for UPC/EAN), but don't force it if you want alphanumerics
+        const digits = String(v ?? "").replace(/\D/g, "");
+        return digits || norm(v);
       }
       return norm(v);
     };
@@ -311,40 +342,40 @@ export async function POST(req: Request) {
         rowNumber: sheetRowNumber,
         applied: cleanedPatch,
       });
-    } else {
-      // APPEND new row
-      const newRow = new Array(rawHeaders.length).fill("");
-
-      newRow[upcIdx] = upc;
-
-      const nameIdx = headerKeyToIndex.get("product_name")!;
-      newRow[nameIdx] = coerce(
-        "product_name",
-        cleanedPatch["product_name"] ?? upc,
-      );
-
-      for (const [k, v] of Object.entries(cleanedPatch)) {
-        const idx = headerKeyToIndex.get(k);
-        if (idx === undefined) continue;
-        newRow[idx] = coerce(k, v);
-      }
-
-      await sheets.spreadsheets.values.append({
-        spreadsheetId: sheetId,
-        range: `${TAB}!A1`,
-        valueInputOption: "USER_ENTERED",
-        insertDataOption: "INSERT_ROWS",
-        requestBody: { values: [newRow] },
-      });
-
-      return NextResponse.json({
-        ok: true,
-        upc,
-        created: true,
-        updated: false,
-        applied: cleanedPatch,
-      });
     }
+
+    // APPEND new row
+    const newRow = new Array(rawHeaders.length).fill("");
+
+    newRow[upcIdx] = upc;
+
+    const nameIdx = headerKeyToIndex.get("product_name")!;
+    newRow[nameIdx] = coerce(
+      "product_name",
+      cleanedPatch["product_name"] ?? upc,
+    );
+
+    for (const [k, v] of Object.entries(cleanedPatch)) {
+      const idx = headerKeyToIndex.get(k);
+      if (idx === undefined) continue;
+      newRow[idx] = coerce(k, v);
+    }
+
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: sheetId,
+      range: `${TAB}!A1`,
+      valueInputOption: "USER_ENTERED",
+      insertDataOption: "INSERT_ROWS",
+      requestBody: { values: [newRow] },
+    });
+
+    return NextResponse.json({
+      ok: true,
+      upc,
+      created: true,
+      updated: false,
+      applied: cleanedPatch,
+    });
   } catch (err: any) {
     return NextResponse.json(
       {
