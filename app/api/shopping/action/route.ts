@@ -6,6 +6,7 @@ import {
   ensureCatalogItem,
   getBusinessDateNY,
 } from "@/lib/sheets-core";
+import { resolveToIngredientUpc } from "@/lib/barcodes/resolve";
 
 export const runtime = "nodejs";
 
@@ -15,16 +16,8 @@ function allowInternalKey(req: Request) {
   return !!expected && key === expected;
 }
 
-/**
- * We support real UPC digits AND pseudo-UPCs like "EGG" / "TURKEY_SAUSAGE_PATTY".
- * So: trim only, no digits-only stripping.
- */
-// function normalizeUpc(input: any) {
-//   return (input ?? "").toString().trim();
-// }
-
-function normalizeUpc(input: any) {
-  return (input ?? "").toString().trim().toUpperCase();
+function norm(v: any) {
+  return String(v ?? "").trim();
 }
 
 const ALLOWED_ACTIONS = new Set(["purchased", "dismissed", "snoozed", "undo"]);
@@ -33,7 +26,7 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     message:
-      "POST JSON: { upc, action: 'purchased'|'dismissed'|'snoozed'|'undo', note?, date? }",
+      "POST JSON: { upc, action: 'purchased'|'dismissed'|'snoozed'|'undo', note?, product_name? }",
   });
 }
 
@@ -66,14 +59,13 @@ export async function POST(req: Request) {
     );
   }
 
-  const upc = normalizeUpc(body?.upc);
+  const code = norm(body?.upc ?? body?.code);
   const action = String(body?.action ?? "")
     .trim()
     .toLowerCase();
-  const note = String(body?.note ?? "").trim();
-  const product_name = String(body?.product_name ?? "").trim();
+  const note = norm(body?.note);
+  const product_name = norm(body?.product_name);
   const date = getBusinessDateNY();
-  // const date = String(body?.date ?? "").trim() || getBusinessDateNY();
 
   // 🔒 Validate date format (YYYY-MM-DD only)
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -83,7 +75,7 @@ export async function POST(req: Request) {
     );
   }
 
-  if (!upc) {
+  if (!code) {
     return NextResponse.json(
       { ok: false, error: "Missing upc" },
       { status: 400 },
@@ -100,22 +92,64 @@ export async function POST(req: Request) {
     );
   }
 
-  console.log("✅ shopping action", { date, upc, action, actor, note });
+  // ✅ Resolve to ingredient_upc (barcode -> ingredient)
+  const resolved = await resolveToIngredientUpc(code);
 
+  if (!resolved.ok) {
+    return NextResponse.json(
+      { ok: false, error: resolved.error || "Resolve failed" },
+      { status: 500 },
+    );
+  }
+
+  if (!resolved.found) {
+    // Safety: barcodes must be mapped; pseudo ingredient keys can pass through.
+    if (resolved.probably_barcode) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "Unknown barcode. Add a mapping in Barcode_Map (or Catalog fallback) before taking a shopping action.",
+          code,
+        },
+        { status: 400 },
+      );
+    }
+  }
+
+  const ingredient_upc = resolved.found ? resolved.ingredient_upc : code;
+
+  console.log("✅ shopping action", {
+    date,
+    upc: ingredient_upc,
+    action,
+    actor,
+    note,
+    resolve_source: resolved.found ? resolved.source : "direct",
+  });
+
+  // ✅ Always write ingredient_upc into Shopping_Actions
   await appendShoppingAction({
     date,
-    upc,
+    upc: ingredient_upc,
     action: action as "purchased" | "dismissed" | "snoozed" | "undo",
     note,
     actor,
   });
 
+  // If purchased: ensure Catalog item exists using ingredient_upc
   if (action === "purchased") {
     await ensureCatalogItem({
-      upc,
-      product_name: product_name || upc,
+      upc: ingredient_upc,
+      product_name: product_name || ingredient_upc,
     });
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({
+    ok: true,
+    ingredient_upc,
+    resolved: resolved.found
+      ? { source: resolved.source }
+      : { source: "direct" },
+  });
 }

@@ -81,11 +81,24 @@ export type ReorderEmailLogRow = {
 /**
  * Normalize UPC consistently across the system.
  * Supports real UPC digits AND pseudo-UPCs like "EGG" / "TURKEY_SAUSAGE_PATTY".
+ *
+ * IMPORTANT:
+ * - Use this for *ingredient_upc* (canonical internal key)
+ * - Do NOT rely on this for barcode matching (use digits-only logic for barcodes)
  */
 function normUpc(v: any): string {
   return String(v ?? "")
     .trim()
     .toUpperCase();
+}
+
+/**
+ * Barcode detection: 11–14 digits covers UPC-A/EAN/GTIN variants.
+ * (Some scanners drop a leading 0, giving 11 digits.)
+ */
+function isProbablyBarcodeUpc(v: any): boolean {
+  const s = String(v ?? "").trim();
+  return /^\d{11,14}$/.test(s);
 }
 
 function getSheetsClient() {
@@ -166,7 +179,6 @@ function normalizeHeaderKey(h: any): string {
 
 /**
  * Read a tab as header-driven objects, with header normalization.
- * ✅ FIX: reads the tabName you pass in.
  */
 async function readTabObjectsNormalized(tabName: string): Promise<any[]> {
   const sheets = getSheetsClient();
@@ -217,6 +229,102 @@ function pick(obj: any, keys: string[]): string {
       return String(v);
   }
   return "";
+}
+
+/**
+ * Resolve input code to canonical ingredient_upc.
+ *
+ * Priority:
+ * 1) Barcode_Map (barcode_upc -> ingredient_upc) where active != false
+ * 2) Catalog fallback (Catalog.barcode_upc -> Catalog.upc)
+ * 3) If code matches Catalog.upc, treat as ingredient_upc
+ *
+ * If not found:
+ * - If it looks like a barcode => return null (force mapping)
+ * - Else return normUpc(code) (treat as pseudo ingredient key)
+ */
+export async function resolveIngredientUpcFromCode(
+  codeRaw: any,
+): Promise<{ ingredient_upc: string | null; source: string }> {
+  const raw = String(codeRaw ?? "").trim();
+  if (!raw) return { ingredient_upc: null, source: "missing" };
+
+  // For pseudo keys
+  const codeNorm = normUpc(raw);
+
+  // For barcodes
+  const rawDigits = raw.replace(/\D/g, "");
+
+  // 1) Barcode_Map
+  try {
+    const rows = await readTabObjectsNormalized("Barcode_Map");
+    const hit = rows.find((r: any) => {
+      const barcodeDigits = String(r.barcode_upc ?? "")
+        .trim()
+        .replace(/\D/g, "");
+
+      const active = String(r.active ?? "true")
+        .trim()
+        .toLowerCase();
+
+      return (
+        barcodeDigits &&
+        rawDigits &&
+        barcodeDigits === rawDigits &&
+        active !== "false"
+      );
+    });
+
+    if (hit) {
+      const ingredient = normUpc(hit.ingredient_upc);
+      if (ingredient)
+        return { ingredient_upc: ingredient, source: "barcode_map" };
+    }
+  } catch {
+    // Barcode_Map may not exist yet; ignore
+  }
+
+  // 2) Catalog fallback
+  try {
+    const catalogRows = await readTabObjectsNormalized(
+      process.env.CATALOG_TAB || "Catalog",
+    );
+
+    // direct match on Catalog.upc (ingredient key)
+    const direct = catalogRows.find((r: any) => normUpc(r.upc) === codeNorm);
+    if (direct)
+      return { ingredient_upc: normUpc(direct.upc), source: "catalog_upc" };
+
+    // barcode match on Catalog.barcode_upc
+    if (rawDigits) {
+      const byBarcode = catalogRows.find((r: any) => {
+        const b = String(r.barcode_upc ?? "")
+          .trim()
+          .replace(/\D/g, "");
+        return b && b === rawDigits;
+      });
+
+      if (byBarcode) {
+        const ingredient = normUpc(byBarcode.upc);
+        if (ingredient) {
+          return {
+            ingredient_upc: ingredient,
+            source: "catalog_barcode_fallback",
+          };
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // 3) Not found
+  if (isProbablyBarcodeUpc(raw)) {
+    return { ingredient_upc: null, source: "unknown_barcode" };
+  }
+
+  // Treat as pseudo ingredient key
+  return { ingredient_upc: codeNorm, source: "direct" };
 }
 
 /**
@@ -1042,9 +1150,9 @@ export async function appendReorderEmailLogRow(input: {
   const missing = required.filter((h) => !indexByHeader.has(h));
   if (missing.length) {
     throw new Error(
-      `Reorder_Email_Log missing headers: ${missing.join(", ")}. Found: ${rawHeaders.join(
-        " | ",
-      )}`,
+      `Reorder_Email_Log missing headers: ${missing.join(
+        ", ",
+      )}. Found: ${rawHeaders.join(" | ")}`,
     );
   }
 
@@ -1127,20 +1235,42 @@ export async function resolveAlertById(alertId: string): Promise<boolean> {
 
 /**
  * ===============================
- * Ensure Catalog Item Exists
+ * Ensure Catalog Item Exists (SAFE + STRICT)
  * ===============================
- * NOTE: This remains range-based for now, but ends correctly.
+ *
+ * ✅ MUST NOT create Catalog rows keyed by a raw barcode.
+ * ✅ MUST NOT invent a UPC from product_name.
+ *
+ * Rules:
+ * - If you pass a barcode, it MUST already be mapped -> ingredient_upc.
+ * - If you pass an ingredient_upc, it uses that.
+ * - If you pass nothing, it throws (prevents silent corruption).
  */
 export async function ensureCatalogItem(input: {
-  upc?: string;
+  upc?: string; // may be ingredient_upc OR scanned barcode
   product_name: string;
 }) {
   const CATALOG_TAB = process.env.CATALOG_TAB || "Catalog";
 
-  const upc = String(input.upc || "").trim();
+  const raw = String(input.upc || "").trim();
   const product_name = String(input.product_name || "").trim();
 
   if (!product_name) throw new Error("Missing product_name");
+  if (!raw) {
+    throw new Error(
+      "Missing upc. Pass ingredient_upc (or a barcode_upc that is already mapped).",
+    );
+  }
+
+  // Resolve raw code to canonical ingredient_upc
+  const resolved = await resolveIngredientUpcFromCode(raw);
+  if (!resolved.ingredient_upc) {
+    throw new Error(
+      "Unknown barcode. Add mapping in Barcode_Map (or Catalog barcode fallback) before ensuring Catalog item.",
+    );
+  }
+
+  const ingredientUpc = resolved.ingredient_upc;
 
   const sheets = getSheetsClient();
 
@@ -1159,28 +1289,29 @@ export async function ensureCatalogItem(input: {
   const i_name = idx("product_name");
   const i_last = idx("last_seen");
 
+  if (i_upc === -1) throw new Error("Catalog missing 'upc' header");
   if (i_name === -1) throw new Error("Catalog missing 'product_name' header");
 
   let found = false;
   let rowIndex = -1;
 
-  if (upc && i_upc !== -1) {
-    for (let r = 1; r < values.length; r++) {
-      if (String(values[r][i_upc] || "").trim() === upc) {
-        found = true;
-        rowIndex = r;
-        break;
-      }
+  // 1) Match by ingredient_upc (canonical)
+  for (let r = 1; r < values.length; r++) {
+    if (normUpc(values[r][i_upc]) === normUpc(ingredientUpc)) {
+      found = true;
+      rowIndex = r;
+      break;
     }
   }
 
+  // 2) Fallback match by product_name (legacy)
   if (!found) {
-    const norm = product_name.toLowerCase().trim();
+    const normName = product_name.toLowerCase().trim();
     for (let r = 1; r < values.length; r++) {
       const existing = String(values[r][i_name] || "")
         .toLowerCase()
         .trim();
-      if (existing === norm) {
+      if (existing === normName) {
         found = true;
         rowIndex = r;
         break;
@@ -1188,6 +1319,7 @@ export async function ensureCatalogItem(input: {
     }
   }
 
+  // Update last_seen if found
   if (found) {
     if (i_last !== -1) {
       const sheetRow = rowIndex + 1;
@@ -1201,9 +1333,10 @@ export async function ensureCatalogItem(input: {
       });
     }
 
-    return { created: false };
+    return { created: false, upc: ingredientUpc };
   }
 
+  // Create new row keyed by ingredient_upc only
   const newRow = new Array(header.length).fill("");
 
   const set = (col: string, val: any) => {
@@ -1211,7 +1344,7 @@ export async function ensureCatalogItem(input: {
     if (i !== -1) newRow[i] = val;
   };
 
-  set("upc", upc);
+  set("upc", ingredientUpc);
   set("product_name", product_name);
   set("active", "true");
   set("last_seen", new Date().toISOString());
@@ -1223,5 +1356,5 @@ export async function ensureCatalogItem(input: {
     requestBody: { values: [newRow] },
   });
 
-  return { created: true };
+  return { created: true, upc: ingredientUpc };
 }

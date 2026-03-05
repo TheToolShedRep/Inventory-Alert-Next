@@ -6,6 +6,19 @@ import { google } from "googleapis";
 
 export const runtime = "nodejs";
 
+/**
+ * ✅ Goal of this route
+ * - Support 2 IDs safely:
+ *   1) ingredient_upc (stable internal key)  e.g. "PORK_BACON_SLICE"
+ *   2) barcode_upc    (scannable UPC/EAN)   e.g. "012345678901"
+ *
+ * ✅ Rules to prevent breakage:
+ * - All inventory math / recipes / state uses ingredient_upc ONLY.
+ * - barcode_upc is only an alias used for lookups at input time.
+ * - POST must NEVER create a Catalog row where Catalog.upc is a barcode.
+ *   If a barcode is unknown, caller must provide body.ingredient_upc to attach/create safely.
+ */
+
 function norm(v: any) {
   return String(v ?? "").trim();
 }
@@ -68,6 +81,36 @@ function normalizeHeaderKey(h: any) {
 }
 
 /**
+ * Heuristic: if it’s 11–14 digits, treat as “probably barcode”
+ * - UPC-A: 12
+ * - EAN-13: 13
+ * - GTIN-14: 14
+ * Some systems store 11 (missing leading 0), so allow 11 too.
+ */
+function isProbablyBarcode(v: string) {
+  const s = norm(v);
+  return /^\d{11,14}$/.test(s);
+}
+
+/**
+ * Find a Catalog row by either:
+ * - Catalog.upc (ingredient_upc / pseudo key)
+ * - Catalog.barcode_upc (real barcode)
+ */
+function findCatalogRowByEither(catalogRows: any[], query: string) {
+  const q = up(query);
+
+  // Match canonical ingredient key first (fast + deterministic)
+  const byIngredient = catalogRows.find((r) => up(r?.["upc"]) === q) ?? null;
+  if (byIngredient) return byIngredient;
+
+  // Then match barcode
+  const byBarcode =
+    catalogRows.find((r) => up(r?.["barcode_upc"]) === q) ?? null;
+  return byBarcode;
+}
+
+/**
  * GET /api/catalog/item?upc=EGG
  * GET /api/catalog/item?upc=012345678901  (barcode_upc)
  *
@@ -101,13 +144,7 @@ export async function GET(req: Request) {
     }
 
     const catalog = await readTabAsObjects("Catalog");
-
-    // ✅ Match by pseudo upc OR barcode_upc
-    const row = catalog.rows.find((r) => {
-      const pseudo = up(r["upc"]);
-      const barcode = up(r["barcode_upc"]);
-      return pseudo === queryUpc || barcode === queryUpc;
-    });
+    const row = findCatalogRowByEither(catalog.rows, queryUpc);
 
     if (!row) {
       return NextResponse.json({
@@ -155,26 +192,37 @@ export async function GET(req: Request) {
 
 /**
  * POST /api/catalog/item
- * “Calibration without calibration log”:
- * - Updates the Catalog row for a UPC (reorder_point/par_level/vendor/location/etc)
- * - If UPC row doesn't exist, creates it (header-driven)
  *
- * ✅ Also allows patching "barcode_upc" now (safe because you appended it to the end)
+ * ✅ Safe rules:
+ * - If body.upc is an ingredient key → update/create that item.
+ * - If body.upc is a BARCODE:
+ *    - If barcode is already mapped in Catalog.barcode_upc → update that item.
+ *    - If barcode is NOT found:
+ *        - You MUST provide body.ingredient_upc to create/attach safely.
+ *        - Otherwise we refuse (to prevent creating a catalog row whose "upc" is a barcode).
  *
  * Auth:
  * - Clerk user OR internal key
  *
- * Body example:
+ * Body examples:
+ *
+ * 1) Update by ingredient key (existing behavior)
  * {
  *   "upc": "EGG",
- *   "patch": {
- *     "reorder_point": 30,
- *     "par_level": 60,
- *     "preferred_vendor": "Walmart",
- *     "default_location": "Kitchen",
- *     "notes": "Calibrated after running out early",
- *     "barcode_upc": "012345678901"
- *   }
+ *   "patch": { "reorder_point": 30 }
+ * }
+ *
+ * 2) Attach a new barcode to an existing ingredient item
+ * {
+ *   "upc": "EGG",
+ *   "patch": { "barcode_upc": "012345678901" }
+ * }
+ *
+ * 3) Scan-based attach (barcode unknown → require ingredient_upc)
+ * {
+ *   "upc": "012345678901",
+ *   "ingredient_upc": "PORK_BACON_SLICE",
+ *   "patch": { "barcode_upc": "012345678901", "product_name": "Bacon", "base_unit": "each" }
  * }
  */
 export async function POST(req: Request) {
@@ -189,14 +237,19 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json().catch(() => null);
-    const upc = up(body?.upc);
 
-    if (!upc) {
+    const queryRaw = norm(body?.upc);
+    const query = up(queryRaw);
+
+    if (!query) {
       return NextResponse.json(
         { ok: false, error: "Missing body.upc" },
         { status: 400 },
       );
     }
+
+    // Optional explicit canonical ingredient key (used for safe create/attach when scanning)
+    const explicitIngredientUpc = up(body?.ingredient_upc);
 
     const patch = body?.patch ?? {};
     if (!patch || typeof patch !== "object") {
@@ -216,7 +269,7 @@ export async function POST(req: Request) {
       "default_location",
       "active",
       "notes",
-      "barcode_upc", // ✅ NEW
+      "barcode_upc", // ✅ barcode alias
     ]);
 
     const cleanedPatch: Record<string, any> = {};
@@ -232,6 +285,51 @@ export async function POST(req: Request) {
           ok: false,
           error:
             "No valid patch fields. Allowed: reorder_point, par_level, preferred_vendor, default_location, product_name, base_unit, active, notes, barcode_upc",
+        },
+        { status: 400 },
+      );
+    }
+
+    /**
+     * ✅ Resolve:
+     * - If query matches Catalog.upc → use it
+     * - Else if query matches Catalog.barcode_upc → use that row's Catalog.upc
+     * - Else (not found):
+     *    - If query looks like barcode AND no ingredient_upc provided → refuse
+     *    - Else treat query as ingredient_upc for create/update
+     */
+    const catalogObj = await readTabAsObjects("Catalog");
+    const foundObjRow = findCatalogRowByEither(catalogObj.rows, query);
+
+    const resolvedIngredientUpc =
+      up(foundObjRow?.["upc"]) || explicitIngredientUpc || "";
+
+    const queryLooksLikeBarcode = isProbablyBarcode(query);
+
+    if (!foundObjRow && queryLooksLikeBarcode && !explicitIngredientUpc) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "Barcode not found in Catalog. Provide body.ingredient_upc to create/attach this barcode safely.",
+          upc: query,
+        },
+        { status: 400 },
+      );
+    }
+
+    // If not found, and explicitIngredientUpc exists, we create/update that canonical key.
+    // If not found, and query is NOT a barcode, we assume query IS the ingredient key.
+    const canonicalUpc =
+      resolvedIngredientUpc || (queryLooksLikeBarcode ? "" : query);
+
+    if (!canonicalUpc) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "Unable to resolve canonical ingredient_upc. Provide body.ingredient_upc.",
+          upc: query,
         },
         { status: 400 },
       );
@@ -267,7 +365,7 @@ export async function POST(req: Request) {
       throw new Error("Catalog missing required header: product_name");
     }
 
-    // Pull sheet values to find existing row by UPC (pseudo upc only)
+    // Pull sheet values to find existing row by UPC (CANONICAL ingredient key ONLY)
     const valuesRes = await sheets.spreadsheets.values.get({
       spreadsheetId: sheetId,
       range: `${TAB}!A:Z`,
@@ -279,7 +377,7 @@ export async function POST(req: Request) {
     let foundRowIndex = -1; // 0-based index inside `values`
     for (let r = 1; r < values.length; r++) {
       const rowUpc = up(values[r]?.[upcIdx]);
-      if (rowUpc === upc) {
+      if (rowUpc === canonicalUpc) {
         foundRowIndex = r;
         break;
       }
@@ -296,9 +394,10 @@ export async function POST(req: Request) {
         return norm(v);
       }
       if (key === "barcode_upc") {
-        // keep digits only (common for UPC/EAN), but don't force it if you want alphanumerics
-        const digits = String(v ?? "").replace(/\D/g, "");
-        return digits || norm(v);
+        // Keep digits only when it's truly a barcode-like value; otherwise allow the raw.
+        const raw = norm(v);
+        const digits = raw.replace(/\D/g, "");
+        return digits || raw;
       }
       return norm(v);
     };
@@ -306,18 +405,28 @@ export async function POST(req: Request) {
     // Determine update range width based on headers we have (use header length)
     const lastColLetter = colToA1(Math.max(0, rawHeaders.length - 1));
 
+    // If caller used barcode query, and they are NOT explicitly patching barcode_upc,
+    // we should still allow them to update other fields on the resolved ingredient row.
+    // But if they DID provide ingredient_upc and a barcode, we usually want to attach it.
+    if (queryLooksLikeBarcode) {
+      // If scanning flow, default attach scanned barcode to row unless explicitly set differently.
+      if (cleanedPatch["barcode_upc"] === undefined) {
+        cleanedPatch["barcode_upc"] = queryRaw; // preserve original casing/digits
+      }
+    }
+
     if (foundRowIndex !== -1) {
       // UPDATE existing row
       const row = values[foundRowIndex] ? [...values[foundRowIndex]] : [];
       while (row.length < rawHeaders.length) row.push("");
 
-      // Always ensure upc is set correctly
-      row[upcIdx] = upc;
+      // Always ensure canonical upc is set correctly
+      row[upcIdx] = canonicalUpc;
 
       // If product_name is missing and not provided, default to UPC
       const nameIdx = headerKeyToIndex.get("product_name")!;
       if (!norm(row[nameIdx]) && cleanedPatch["product_name"] === undefined) {
-        row[nameIdx] = upc;
+        row[nameIdx] = canonicalUpc;
       }
 
       for (const [k, v] of Object.entries(cleanedPatch)) {
@@ -336,7 +445,13 @@ export async function POST(req: Request) {
 
       return NextResponse.json({
         ok: true,
-        upc,
+        // what caller asked with
+        query: queryRaw,
+        query_type: queryLooksLikeBarcode ? "barcode_upc" : "ingredient_upc",
+
+        // canonical
+        ingredient_upc: canonicalUpc,
+
         created: false,
         updated: true,
         rowNumber: sheetRowNumber,
@@ -344,15 +459,16 @@ export async function POST(req: Request) {
       });
     }
 
-    // APPEND new row
+    // APPEND new row (ONLY allowed when canonicalUpc is an ingredient key)
+    // If the query looked like a barcode, we required explicitIngredientUpc earlier.
     const newRow = new Array(rawHeaders.length).fill("");
 
-    newRow[upcIdx] = upc;
+    newRow[upcIdx] = canonicalUpc;
 
     const nameIdx = headerKeyToIndex.get("product_name")!;
     newRow[nameIdx] = coerce(
       "product_name",
-      cleanedPatch["product_name"] ?? upc,
+      cleanedPatch["product_name"] ?? canonicalUpc,
     );
 
     for (const [k, v] of Object.entries(cleanedPatch)) {
@@ -371,7 +487,10 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       ok: true,
-      upc,
+      query: queryRaw,
+      query_type: queryLooksLikeBarcode ? "barcode_upc" : "ingredient_upc",
+      ingredient_upc: canonicalUpc,
+
       created: true,
       updated: false,
       applied: cleanedPatch,

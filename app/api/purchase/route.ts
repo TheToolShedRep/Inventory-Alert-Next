@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { appendPurchaseRow, upsertCatalogRow } from "@/lib/purchases";
+import { resolveToIngredientUpc } from "@/lib/barcodes/resolve";
 
 function allowInternalKey(req: Request) {
   const key = req.headers.get("x-api-key");
@@ -10,13 +11,18 @@ function allowInternalKey(req: Request) {
 }
 
 /**
- * We currently support two UPC styles:
- * 1) Real barcode UPCs (digits)
- * 2) Pseudo-UPCs (internal keys) like "EGG", "CROISSANT", "PORK_BACON_SLICE"
+ * IMPORTANT (new rule):
+ * - This endpoint may receive either:
+ *   a) ingredient_upc (stable internal key) e.g. "EGG" / "PORK_BACON_SLICE"
+ *   b) barcode_upc (scanned digits)        e.g. "012345678901"
  *
- * So we DO NOT strip non-digits. We just trim.
+ * ✅ We ALWAYS write ingredient_upc to:
+ * - Purchases ledger
+ * - Catalog upsert
+ *
+ * barcode_upc is only used to resolve to ingredient_upc (via Barcode_Map first, then Catalog fallback).
  */
-function normalizeUpc(input: any) {
+function normalizeCode(input: any) {
   return (input ?? "").toString().trim();
 }
 
@@ -42,7 +48,7 @@ function pickNumber(body: any, keys: string[], fallback = 0) {
 }
 
 export async function POST(req: Request) {
-  //  Auth gate: allow either internal key OR Clerk user
+  // Auth gate: allow either internal key OR Clerk user
   let enteredBy = "internal";
   if (!allowInternalKey(req)) {
     const { userId } = await auth();
@@ -71,14 +77,14 @@ export async function POST(req: Request) {
   }
 
   // Accept both camelCase and snake_case request bodies
-  const upc = normalizeUpc(pickString(body, ["upc"]));
+  const code = normalizeCode(pickString(body, ["upc", "code"]));
   const productName = pickString(body, ["productName", "product_name"]);
 
   const qtyPurchased = pickNumber(body, ["qtyPurchased", "qty_purchased"], 0);
 
   // Support either:
-  // - UI sending unit price (often called "price" or "unitPrice")
-  // - API callers sending total_price/totalPrice
+  // - unit price (price/unitPrice/unit_price)
+  // - or total price (totalPrice/total_price)
   const unitPrice = pickNumber(body, ["unitPrice", "unit_price", "price"], NaN);
   const totalPriceProvided = pickNumber(
     body,
@@ -86,10 +92,6 @@ export async function POST(req: Request) {
     NaN,
   );
 
-  // Compute total price safely:
-  // - If total price is provided, use it.
-  // - Else if unit price is provided, compute.
-  // - Else default 0 for starting inventory.
   const totalPrice = Number.isFinite(totalPriceProvided)
     ? totalPriceProvided
     : Number.isFinite(unitPrice)
@@ -114,8 +116,8 @@ export async function POST(req: Request) {
   ]);
   const notes = pickString(body, ["notes"]);
 
-  // --- Validation ---
-  if (!upc) {
+  // --- Validation (input) ---
+  if (!code) {
     return NextResponse.json(
       { ok: false, error: "Missing upc" },
       { status: 400 },
@@ -155,10 +157,53 @@ export async function POST(req: Request) {
   const nowIso = new Date().toISOString();
 
   try {
+    /**
+     * ✅ Resolve code -> ingredient_upc
+     *
+     * Priority:
+     * 1) Barcode_Map (barcode_upc -> ingredient_upc)
+     * 2) Catalog fallback (Catalog.barcode_upc -> Catalog.upc)
+     * 3) Catalog direct (Catalog.upc == code)
+     *
+     * If it looks like a barcode and isn't known, we reject so we don't
+     * accidentally write a barcode as an ingredient_upc in the ledger.
+     */
+    const resolved = await resolveToIngredientUpc(code);
+
+    if (!resolved.ok) {
+      return NextResponse.json(
+        { ok: false, error: resolved.error || "Resolve failed" },
+        { status: 500 },
+      );
+    }
+
+    if (!resolved.found) {
+      // Safety rule: if it *looks* like a barcode, do not proceed.
+      if (resolved.probably_barcode) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              "Unknown barcode. Add a mapping in Barcode_Map (or Catalog fallback) before purchasing.",
+            code,
+          },
+          { status: 400 },
+        );
+      }
+
+      // Otherwise treat it as a new ingredient_upc (pseudo key)
+      // Example: "EGG" / "PORK_BACON_SLICE" entered manually.
+      // This keeps your old behavior working for internal keys.
+    }
+
+    const ingredient_upc = resolved.found ? resolved.ingredient_upc : code;
+
+    // --- Write ledger row (Purchases) ---
+    // ✅ Always write ingredient_upc here, never the barcode.
     await appendPurchaseRow({
       timestamp: nowIso,
       entered_by: enteredBy,
-      upc,
+      upc: ingredient_upc,
       product_name: productName,
       brand: brand || undefined,
       size_unit: sizeUnit || undefined,
@@ -171,8 +216,14 @@ export async function POST(req: Request) {
       notes: notes || undefined,
     });
 
+    /**
+     * Catalog upsert:
+     * - We keep Catalog keyed by ingredient_upc (stable)
+     * - This endpoint does NOT auto-create Barcode_Map mappings.
+     *   (Do that via POST /api/barcode/resolve so it’s explicit and auditable.)
+     */
     await upsertCatalogRow({
-      upc,
+      upc: ingredient_upc,
       product_name: productName,
       brand: brand || "",
       size_unit: sizeUnit || "",
@@ -183,7 +234,13 @@ export async function POST(req: Request) {
       notes: notes || "",
     });
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({
+      ok: true,
+      ingredient_upc,
+      resolved: resolved.found
+        ? { source: resolved.source }
+        : { source: "direct" },
+    });
   } catch (e: any) {
     return NextResponse.json(
       { ok: false, error: e?.message || "Save failed" },
