@@ -1,3 +1,5 @@
+// app/checklist/ChecklistClient.tsx
+
 "use client";
 
 import { useMemo, useRef, useState } from "react";
@@ -107,7 +109,7 @@ async function resolveAlert(alertId: string) {
 
 async function postShoppingAction(input: {
   upc: string;
-  action: "dismissed" | "undo" | "purchased";
+  action: "dismissed" | "undo" | "purchased" | "snoozed";
   note?: string;
 }) {
   const res = await fetch("/api/shopping/action", {
@@ -141,6 +143,9 @@ export default function ChecklistClient({
   const [undoUpc, setUndoUpc] = useState<string>("");
   const [undoLabel, setUndoLabel] = useState<string>("");
 
+  // Optional status message for actions like Snooze
+  const [shoppingStatus, setShoppingStatus] = useState<string>("");
+
   useMemo(() => {
     (async () => {
       try {
@@ -170,6 +175,7 @@ export default function ChecklistClient({
     setUndoUpc(upc);
     setUndoLabel(row.product_name || upc);
     setUndoVisible(true);
+    setShoppingStatus("");
 
     try {
       await postShoppingAction({ upc, action: "dismissed" });
@@ -185,6 +191,24 @@ export default function ChecklistClient({
       setUndoUpc("");
       setUndoLabel("");
     }, 8000);
+  };
+
+  const snooze = async (row: ShoppingRow) => {
+    const upc = String(row.upc || "").trim();
+    if (!upc) return;
+
+    const prev = shopping;
+    setShopping((cur) => cur.filter((r) => String(r.upc || "").trim() !== upc));
+    setShoppingStatus("");
+
+    try {
+      await postShoppingAction({ upc, action: "snoozed" });
+      setShoppingStatus(`Snoozed: ${row.product_name || upc}`);
+    } catch {
+      setShopping(prev);
+      alert("Snooze failed. Try again.");
+      return;
+    }
   };
 
   const undo = async () => {
@@ -295,6 +319,12 @@ export default function ChecklistClient({
           </div>
         </div>
 
+        {shoppingStatus ? (
+          <div style={{ padding: 12, color: "#0f4d24", fontWeight: 700 }}>
+            {shoppingStatus}
+          </div>
+        ) : null}
+
         {shoppingError ? (
           <div style={{ padding: 12, color: "#8a0f0f" }}>{shoppingError}</div>
         ) : shoppingLoading ? (
@@ -329,21 +359,39 @@ export default function ChecklistClient({
                     </div>
                   </div>
 
-                  <button
-                    onClick={() => dismiss(r)}
-                    style={{
-                      padding: "8px 10px",
-                      borderRadius: 10,
-                      border: "1px solid #ddd",
-                      background: "#fff",
-                      fontWeight: 900,
-                      cursor: "pointer",
-                      whiteSpace: "nowrap",
-                    }}
-                    title="Hide this item for today"
-                  >
-                    Dismiss
-                  </button>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button
+                      onClick={() => dismiss(r)}
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: 10,
+                        border: "1px solid #ddd",
+                        background: "#fff",
+                        fontWeight: 900,
+                        cursor: "pointer",
+                        whiteSpace: "nowrap",
+                      }}
+                      title="Hide this item for today"
+                    >
+                      Dismiss
+                    </button>
+
+                    <button
+                      onClick={() => snooze(r)}
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: 10,
+                        border: "1px solid #ddd",
+                        background: "#fff",
+                        fontWeight: 900,
+                        cursor: "pointer",
+                        whiteSpace: "nowrap",
+                      }}
+                      title="Snooze this item"
+                    >
+                      Snooze
+                    </button>
+                  </div>
                 </li>
               );
             })}
