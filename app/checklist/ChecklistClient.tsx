@@ -150,24 +150,6 @@ export default function ChecklistClient({
   const [shoppingStatus, setShoppingStatus] = useState<string>("");
 
   // Load shopping list once
-  // useMemo(() => {
-  //   (async () => {
-  //     try {
-  //       setShoppingLoading(true);
-  //       setShoppingError("");
-  //       const res = await fetch("/api/shopping-list", { cache: "no-store" });
-  //       const data = await res.json();
-  //       const rows = (data?.rows || data?.shoppingList || []) as ShoppingRow[];
-  //       setShopping(rows);
-  //     } catch (e: any) {
-  //       setShoppingError(e?.message || "Could not load shopping list");
-  //     } finally {
-  //       setShoppingLoading(false);
-  //     }
-  //   })();
-  //   // eslint-disable-next-line react-hooks/exhaustive-deps
-  // }, []);
-
   useEffect(() => {
     (async () => {
       try {
@@ -188,45 +170,25 @@ export default function ChecklistClient({
   // Helper: refetch the current shopping list from the server
   const reloadShoppingList = async () => {
     setShoppingLoading(true);
+    setShoppingError("");
+
     try {
       const res = await fetch("/api/shopping-list", { cache: "no-store" });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || "Could not reload shopping list");
+      }
+
       const data = await res.json();
       const rows = (data?.rows || data?.shoppingList || []) as ShoppingRow[];
       setShopping(rows);
+    } catch (e: any) {
+      setShoppingError(e?.message || "Could not reload shopping list");
     } finally {
       setShoppingLoading(false);
     }
   };
-
-  // const dismiss = async (row: ShoppingRow) => {
-  //   const upc = String(row.upc || "").trim();
-  //   if (!upc) return;
-
-  //   const prev = shopping;
-  //   setShopping((cur) => cur.filter((r) => String(r.upc || "").trim() !== upc));
-
-  //   // Show undo banner for dismiss flow
-  //   if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
-  //   setUndoUpc(upc);
-  //   setUndoLabel(row.product_name || upc);
-  //   setUndoVisible(true);
-  //   setShoppingStatus("");
-
-  //   try {
-  //     await postShoppingAction({ upc, action: "dismissed" });
-  //   } catch {
-  //     setShopping(prev);
-  //     setUndoVisible(false);
-  //     alert("Dismiss failed. Try again.");
-  //     return;
-  //   }
-
-  //   undoTimerRef.current = setTimeout(() => {
-  //     setUndoVisible(false);
-  //     setUndoUpc("");
-  //     setUndoLabel("");
-  //   }, 8000);
-  // };
 
   const dismiss = async (row: ShoppingRow) => {
     const upc = String(row.upc || "").trim();
@@ -263,23 +225,6 @@ export default function ChecklistClient({
     }, 8000);
   };
 
-  // const snooze = async (row: ShoppingRow) => {
-  //   const upc = String(row.upc || "").trim();
-  //   if (!upc) return;
-
-  //   const prev = shopping;
-  //   setShopping((cur) => cur.filter((r) => String(r.upc || "").trim() !== upc));
-  //   setShoppingStatus("");
-
-  //   try {
-  //     await postShoppingAction({ upc, action: "snoozed" });
-  //     setShoppingStatus(`Snoozed: ${row.product_name || upc}`);
-  //   } catch {
-  //     setShopping(prev);
-  //     alert("Snooze failed. Try again.");
-  //   }
-  // };
-
   const snooze = async (row: ShoppingRow) => {
     const upc = String(row.upc || "").trim();
     if (!upc) return;
@@ -301,30 +246,6 @@ export default function ChecklistClient({
       setShoppingBusyUpc(null);
     }
   };
-
-  // const purchased = async (row: ShoppingRow) => {
-  //   const upc = String(row.upc || "").trim();
-  //   if (!upc) return;
-
-  //   const prev = shopping;
-  //   setShopping((cur) => cur.filter((r) => String(r.upc || "").trim() !== upc));
-  //   setShoppingStatus("");
-
-  //   try {
-  //     await postShoppingAction({ upc, action: "purchased" });
-  //     setShoppingStatus(`Purchased: ${row.product_name || upc}`);
-
-  //     // Clear any pending undo banner for a different item if needed
-  //     if (undoUpc === upc) {
-  //       setUndoVisible(false);
-  //       setUndoUpc("");
-  //       setUndoLabel("");
-  //     }
-  //   } catch {
-  //     setShopping(prev);
-  //     alert("Purchased failed. Try again.");
-  //   }
-  // };
 
   const purchased = async (row: ShoppingRow) => {
     const upc = String(row.upc || "").trim();
@@ -355,23 +276,6 @@ export default function ChecklistClient({
   };
 
   // Undo from the dismiss banner
-  // const undo = async () => {
-  //   const upc = undoUpc;
-  //   if (!upc) return;
-
-  //   try {
-  //     await postShoppingAction({ upc, action: "undo" });
-  //     await reloadShoppingList();
-  //   } catch {
-  //     alert("Undo failed. Try again.");
-  //     return;
-  //   } finally {
-  //     setUndoVisible(false);
-  //     setUndoUpc("");
-  //     setUndoLabel("");
-  //   }
-  // };
-
   const undo = async () => {
     const upc = undoUpc;
     if (!upc) return;
@@ -394,21 +298,6 @@ export default function ChecklistClient({
   };
 
   // Direct Undo button on each row / hidden test flow
-  // const undoRow = async (row: ShoppingRow) => {
-  //   const upc = String(row.upc || "").trim();
-  //   if (!upc) return;
-
-  //   setShoppingStatus("");
-
-  //   try {
-  //     await postShoppingAction({ upc, action: "undo" });
-  //     await reloadShoppingList();
-  //     setShoppingStatus(`Undo applied: ${row.product_name || upc}`);
-  //   } catch {
-  //     alert("Undo failed. Try again.");
-  //   }
-  // };
-
   const undoRow = async (row: ShoppingRow) => {
     const upc = String(row.upc || "").trim();
     if (!upc) return;
@@ -553,22 +442,6 @@ export default function ChecklistClient({
                   </div>
 
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    {/* <button
-                      onClick={() => purchased(r)}
-                      style={{
-                        padding: "8px 10px",
-                        borderRadius: 10,
-                        border: "1px solid #ddd",
-                        background: "#fff",
-                        fontWeight: 900,
-                        cursor: "pointer",
-                        whiteSpace: "nowrap",
-                      }}
-                      title="Mark this item as purchased / restocked"
-                    >
-                      Purchased
-                    </button> */}
-
                     <button
                       onClick={() => purchased(r)}
                       disabled={isBusy}
@@ -586,22 +459,6 @@ export default function ChecklistClient({
                     >
                       {isBusy ? "Working..." : "Purchased"}
                     </button>
-
-                    {/* <button
-                      onClick={() => dismiss(r)}
-                      style={{
-                        padding: "8px 10px",
-                        borderRadius: 10,
-                        border: "1px solid #ddd",
-                        background: "#fff",
-                        fontWeight: 900,
-                        cursor: "pointer",
-                        whiteSpace: "nowrap",
-                      }}
-                      title="Hide this item for today"
-                    >
-                      Dismiss
-                    </button> */}
 
                     <button
                       onClick={() => dismiss(r)}
@@ -621,22 +478,6 @@ export default function ChecklistClient({
                       {isBusy ? "Working..." : "Dismiss"}
                     </button>
 
-                    {/* <button
-                      onClick={() => snooze(r)}
-                      style={{
-                        padding: "8px 10px",
-                        borderRadius: 10,
-                        border: "1px solid #ddd",
-                        background: "#fff",
-                        fontWeight: 900,
-                        cursor: "pointer",
-                        whiteSpace: "nowrap",
-                      }}
-                      title="Snooze this item"
-                    >
-                      Snooze
-                    </button> */}
-
                     <button
                       onClick={() => snooze(r)}
                       disabled={isBusy}
@@ -654,22 +495,6 @@ export default function ChecklistClient({
                     >
                       {isBusy ? "Working..." : "Snooze"}
                     </button>
-
-                    {/* <button
-                      onClick={() => undoRow(r)}
-                      style={{
-                        padding: "8px 10px",
-                        borderRadius: 10,
-                        border: "1px solid #ddd",
-                        background: "#fff",
-                        fontWeight: 900,
-                        cursor: "pointer",
-                        whiteSpace: "nowrap",
-                      }}
-                      title="Undo the most recent hidden action for this item"
-                    >
-                      Undo
-                    </button> */}
 
                     <button
                       onClick={() => undoRow(r)}
