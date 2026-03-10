@@ -155,7 +155,14 @@ export default function ChecklistClient({
       try {
         setShoppingLoading(true);
         setShoppingError("");
+
         const res = await fetch("/api/shopping-list", { cache: "no-store" });
+
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || "Could not load shopping list");
+        }
+
         const data = await res.json();
         const rows = (data?.rows || data?.shoppingList || []) as ShoppingRow[];
         setShopping(rows);
