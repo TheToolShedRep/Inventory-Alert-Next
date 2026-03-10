@@ -21,6 +21,17 @@ if (!SERVICE_ACCOUNT_BASE64)
 
 /**
  * ============================
+ * Shopping Actions Cache
+ * ============================
+ */
+
+let shoppingActionsCache: { ts: number; rows: ShoppingActionRow[] } | null =
+  null;
+
+const SHOPPING_ACTIONS_CACHE_MS = 5000;
+
+/**
+ * ============================
  * BUSINESS TIMEZONE
  * ============================
  */
@@ -623,6 +634,15 @@ export async function appendShoppingAction(input: {
 }
 
 async function getShoppingActions(): Promise<ShoppingActionRow[]> {
+  const now = Date.now();
+
+  if (
+    shoppingActionsCache &&
+    now - shoppingActionsCache.ts < SHOPPING_ACTIONS_CACHE_MS
+  ) {
+    return shoppingActionsCache.rows;
+  }
+
   const sheets = getSheetsClient();
 
   const res = await withRetry(
@@ -635,7 +655,10 @@ async function getShoppingActions(): Promise<ShoppingActionRow[]> {
   );
 
   const values = res.data.values || [];
-  if (values.length <= 1) return [];
+  if (values.length <= 1) {
+    shoppingActionsCache = { ts: now, rows: [] };
+    return [];
+  }
 
   const headers = (values[0] || []).map((h: any) =>
     String(h ?? "")
@@ -651,9 +674,13 @@ async function getShoppingActions(): Promise<ShoppingActionRow[]> {
     return obj as ShoppingActionRow;
   });
 
-  return objects
+  const normalized = objects
     .map((r) => ({ ...r, upc: normUpc(r.upc) }))
     .filter((r) => String(r.upc ?? "").length > 0);
+
+  shoppingActionsCache = { ts: now, rows: normalized };
+
+  return normalized;
 }
 
 export type InventoryAdjustmentRow = {
