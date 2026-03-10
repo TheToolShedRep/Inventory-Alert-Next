@@ -863,24 +863,32 @@ export async function getShoppingList(opts?: {
     }),
   ]);
 
-  const catalogCandidates = [
-    "Catalog",
-    "CATALOG",
-    "Product_Catalog",
-    "Products",
-    "Inventory_Catalog",
-    "Items",
-  ];
+  // const catalogCandidates = [
+  //   "Catalog",
+  //   "CATALOG",
+  //   "Product_Catalog",
+  //   "Products",
+  //   "Inventory_Catalog",
+  //   "Items",
+  // ];
 
-  const catalogRes = await readFirstExistingTabObjects(catalogCandidates);
+  const catalogRaw = await readTabObjectsNormalized("Catalog");
 
   const catalogByUpc = new Map<string, any>();
-  for (const r of catalogRes.rows) {
+  for (const r of catalogRaw) {
     const upcVal = pick(r, ["upc", "sku", "plu", "item_code", "code", "id"]);
     const upc = normUpc(upcVal);
     if (!upc) continue;
     if (!catalogByUpc.has(upc)) catalogByUpc.set(upc, r);
   }
+
+  // const catalogByUpc = new Map<string, any>();
+  // for (const r of catalogRes.rows) {
+  //   const upcVal = pick(r, ["upc", "sku", "plu", "item_code", "code", "id"]);
+  //   const upc = normUpc(upcVal);
+  //   if (!upc) continue;
+  //   if (!catalogByUpc.has(upc)) catalogByUpc.set(upc, r);
+  // }
 
   function enrichFromCatalog(row: ShoppingListRow): ShoppingListRow {
     const upc = normUpc(row.upc);
