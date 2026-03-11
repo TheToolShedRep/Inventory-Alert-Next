@@ -10,6 +10,8 @@ export default function PurchaseClient() {
   const upc = searchParams.get("upc");
   const returnUrl = searchParams.get("return") || "/checklist";
 
+  const [quantity, setQuantity] = useState("");
+  const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);
 
   async function markPurchased() {
@@ -26,6 +28,8 @@ export default function PurchaseClient() {
         body: JSON.stringify({
           upc,
           action: "purchased",
+          quantity,
+          note,
         }),
       });
 
@@ -89,6 +93,66 @@ export default function PurchaseClient() {
             >
               {upc || "Missing UPC"}
             </div>
+          </div>
+
+          <div>
+            <label
+              htmlFor="quantity"
+              style={{
+                display: "block",
+                fontSize: 12,
+                opacity: 0.7,
+                marginBottom: 4,
+              }}
+            >
+              Quantity Added
+            </label>
+            <input
+              id="quantity"
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="any"
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+              placeholder="Enter amount added"
+              style={{
+                width: "100%",
+                padding: 12,
+                border: "1px solid #d1d5db",
+                borderRadius: 10,
+                background: "#fff",
+              }}
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="note"
+              style={{
+                display: "block",
+                fontSize: 12,
+                opacity: 0.7,
+                marginBottom: 4,
+              }}
+            >
+              Note (optional)
+            </label>
+            <textarea
+              id="note"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Vendor, purchase note, or restock detail"
+              rows={4}
+              style={{
+                width: "100%",
+                padding: 12,
+                border: "1px solid #d1d5db",
+                borderRadius: 10,
+                background: "#fff",
+                resize: "vertical",
+              }}
+            />
           </div>
 
           <div>
