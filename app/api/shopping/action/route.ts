@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import {
+  appendPurchase,
   appendShoppingAction,
   clearShoppingActionsCache,
   ensureCatalogItem,
@@ -141,10 +142,27 @@ export async function POST(req: Request) {
   clearShoppingActionsCache();
 
   // If purchased: ensure Catalog item exists using ingredient_upc
+  // if (action === "purchased") {
+  //   await ensureCatalogItem({
+  //     upc: ingredient_upc,
+  //     product_name: product_name || ingredient_upc,
+  //   });
+  // }
+
+  // If purchased: ensure Catalog item exists and write to Purchases ledger
   if (action === "purchased") {
     await ensureCatalogItem({
       upc: ingredient_upc,
       product_name: product_name || ingredient_upc,
+    });
+
+    await appendPurchase({
+      entered_by: actor,
+      upc: ingredient_upc,
+      product_name: product_name || ingredient_upc,
+      qty_purchased: body?.quantity ?? "",
+      notes: note,
+      base_units_added: body?.quantity ?? "",
     });
   }
 
