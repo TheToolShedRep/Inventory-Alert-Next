@@ -30,6 +30,10 @@ let shoppingActionsCache: { ts: number; rows: ShoppingActionRow[] } | null =
 
 const SHOPPING_ACTIONS_CACHE_MS = 5000;
 
+export function clearShoppingActionsCache() {
+  shoppingActionsCache = null;
+}
+
 /**
  * ============================
  * BUSINESS TIMEZONE

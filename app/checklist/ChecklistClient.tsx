@@ -4,6 +4,7 @@
 
 // import { useMemo, useRef, useState } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
 type ChecklistItem = {
   timestamp: string;
@@ -135,6 +136,8 @@ export default function ChecklistClient({
    * Auto Reorder (Shopping List)
    * ============================
    */
+
+  const router = useRouter();
   const [shoppingLoading, setShoppingLoading] = useState(true);
   const [shopping, setShopping] = useState<ShoppingRow[]>([]);
   const [shoppingError, setShoppingError] = useState<string>("");
@@ -148,6 +151,18 @@ export default function ChecklistClient({
 
   // Optional status message for actions like Snooze / Purchased / direct Undo
   const [shoppingStatus, setShoppingStatus] = useState<string>("");
+
+  const goToPurchase = (row: ShoppingRow) => {
+    const upc = String(row.upc || "").trim();
+    if (!upc) return;
+
+    const params = new URLSearchParams({
+      upc,
+      return: "/checklist",
+    });
+
+    router.push(`/purchase?${params.toString()}`);
+  };
 
   // Load shopping list once
   useEffect(() => {
@@ -254,6 +269,7 @@ export default function ChecklistClient({
     }
   };
 
+  // Will cleanup later
   const purchased = async (row: ShoppingRow) => {
     const upc = String(row.upc || "").trim();
     if (!upc) return;
@@ -450,7 +466,7 @@ export default function ChecklistClient({
 
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     <button
-                      onClick={() => purchased(r)}
+                      onClick={() => goToPurchase(r)}
                       disabled={isBusy}
                       style={{
                         padding: "8px 10px",

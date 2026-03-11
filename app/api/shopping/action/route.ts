@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import {
   appendShoppingAction,
+  clearShoppingActionsCache,
   ensureCatalogItem,
   getBusinessDateNY,
 } from "@/lib/sheets-core";
@@ -136,6 +137,8 @@ export async function POST(req: Request) {
     note,
     actor,
   });
+
+  clearShoppingActionsCache();
 
   // If purchased: ensure Catalog item exists using ingredient_upc
   if (action === "purchased") {
