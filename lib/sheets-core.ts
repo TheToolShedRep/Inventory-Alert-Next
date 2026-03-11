@@ -1,7 +1,7 @@
 // lib/sheets-core.ts
 import { google } from "googleapis";
 import { unstable_cache } from "next/cache";
-import type { sheets_v4 } from "googleapis";
+// import type { sheets_v4 } from "googleapis";
 import { appendRowHeaderDriven } from "@/lib/sheets/sheets-utils";
 
 /**
@@ -735,6 +735,61 @@ export async function appendCalibrationLog(input: CalibrationLogInput) {
       notes: input.notes ?? "",
     },
   });
+}
+
+/**
+ * Appends a restock/purchase entry to the Purchases sheet.
+ * Used when an item is marked as "purchased" from the shopping list.
+ */
+export async function appendPurchase(input: {
+  entered_by?: string;
+  upc: string;
+  product_name?: string;
+  brand?: string;
+  size_unit?: string;
+  google_category_id?: string;
+  google_category_name?: string;
+  qty_purchased?: string | number;
+  total_price?: string | number;
+  unit_price?: string | number;
+  store_vendor?: string;
+  assigned_location?: string;
+  notes?: string;
+  base_units_added?: string | number;
+}) {
+  const sheets = getSheetsClient();
+  const PURCHASES_TAB = process.env.PURCHASES_TAB || "Purchases";
+
+  const row = [
+    new Date().toISOString(), // timestamp
+    String(input.entered_by ?? "").trim(),
+    String(input.upc ?? "").trim(),
+    String(input.product_name ?? "").trim(),
+    String(input.brand ?? "").trim(),
+    String(input.size_unit ?? "").trim(),
+    String(input.google_category_id ?? "").trim(),
+    String(input.google_category_name ?? "").trim(),
+    String(input.qty_purchased ?? "").trim(),
+    String(input.total_price ?? "").trim(),
+    String(input.unit_price ?? "").trim(),
+    String(input.store_vendor ?? "").trim(),
+    String(input.assigned_location ?? "").trim(),
+    String(input.notes ?? "").trim(),
+    String(input.base_units_added ?? "").trim(),
+  ];
+
+  await withRetry(
+    () =>
+      sheets.spreadsheets.values.append({
+        spreadsheetId: GOOGLE_SHEET_ID!,
+        range: `${PURCHASES_TAB}!A:O`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: {
+          values: [row],
+        },
+      }),
+    "purchases.values.append",
+  );
 }
 
 /**
