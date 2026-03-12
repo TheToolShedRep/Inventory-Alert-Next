@@ -156,10 +156,20 @@ export default function ChecklistClient({
     const upc = String(row.upc || "").trim();
     if (!upc) return;
 
+    const productName = String(row.product_name || "").trim();
+    const recommendedQty = String(row.qty_to_order_base_units || "").trim();
+    const vendor = String(row.preferred_vendor || "").trim();
+    const location = String(row.default_location || "").trim();
+
     const params = new URLSearchParams({
       upc,
       return: "/checklist",
     });
+
+    if (productName) params.set("product_name", productName);
+    if (recommendedQty) params.set("recommended_qty", recommendedQty);
+    if (vendor) params.set("vendor", vendor);
+    if (location) params.set("location", location);
 
     router.push(`/purchase?${params.toString()}`);
   };

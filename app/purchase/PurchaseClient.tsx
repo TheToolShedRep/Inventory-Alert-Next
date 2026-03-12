@@ -8,9 +8,13 @@ export default function PurchaseClient() {
   const router = useRouter();
 
   const upc = searchParams.get("upc");
+  const productName = searchParams.get("product_name") || "";
+  const recommendedQty = searchParams.get("recommended_qty") || "";
+  const vendor = searchParams.get("vendor") || "";
+  const location = searchParams.get("location") || "";
   const returnUrl = searchParams.get("return") || "/checklist";
 
-  const [quantity, setQuantity] = useState("");
+  const [quantity, setQuantity] = useState(recommendedQty);
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -27,6 +31,7 @@ export default function PurchaseClient() {
         },
         body: JSON.stringify({
           upc,
+          product_name: productName,
           action: "purchased",
           quantity,
           note,
@@ -69,6 +74,26 @@ export default function PurchaseClient() {
         <p style={{ marginTop: 0, opacity: 0.75 }}>
           Confirm that this item was purchased or restocked.
         </p>
+
+        <div>
+          <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>
+            Product Name
+          </div>
+          <div style={{ fontSize: 12, opacity: 0.7 }}>
+            Recommended Restock: {recommendedQty || "—"}
+          </div>
+          <div
+            style={{
+              padding: 12,
+              border: "1px solid #e5e7eb",
+              borderRadius: 10,
+              background: "#f9fafb",
+              fontWeight: 700,
+            }}
+          >
+            {productName || "Unknown Product"}
+          </div>
+        </div>
 
         <div
           style={{
@@ -124,6 +149,38 @@ export default function PurchaseClient() {
                 background: "#fff",
               }}
             />
+          </div>
+
+          <div>
+            <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>
+              Preferred Vendor
+            </div>
+            <div
+              style={{
+                padding: 12,
+                border: "1px solid #e5e7eb",
+                borderRadius: 10,
+                background: "#f9fafb",
+              }}
+            >
+              {vendor || "—"}
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>
+              Default Location
+            </div>
+            <div
+              style={{
+                padding: 12,
+                border: "1px solid #e5e7eb",
+                borderRadius: 10,
+                background: "#f9fafb",
+              }}
+            >
+              {location || "—"}
+            </div>
           </div>
 
           <div>
