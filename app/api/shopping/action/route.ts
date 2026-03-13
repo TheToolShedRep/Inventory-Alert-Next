@@ -65,7 +65,16 @@ export async function POST(req: Request) {
   const action = String(body?.action ?? "")
     .trim()
     .toLowerCase();
-  const note = norm(body?.note);
+  // const note = norm(body?.note);
+  let note = norm(body?.note);
+
+  // capture snooze duration if provided
+  const snoozeChoice = norm(body?.snooze_choice);
+
+  if (action === "snoozed" && snoozeChoice) {
+    note = `snooze:${snoozeChoice}`;
+  }
+
   const product_name = norm(body?.product_name);
   const vendor = norm(body?.vendor);
   const location = norm(body?.location);

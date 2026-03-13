@@ -1016,14 +1016,27 @@ export async function getShoppingList(opts?: {
   let filtered = Array.from(byUpc.values());
 
   if (!includeHidden) {
-    const today = getBusinessDateNY(new Date(Date.now() - 24 * 60 * 60 * 1000));
+    const now = new Date();
+    const today = getBusinessDateNY(now);
+    const yesterday = getBusinessDateNY(
+      new Date(now.getTime() - 24 * 60 * 60 * 1000),
+    );
+    const tomorrow = getBusinessDateNY(
+      new Date(now.getTime() + 24 * 60 * 60 * 1000),
+    );
+    const twoDaysFromNow = getBusinessDateNY(
+      new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000),
+    );
+
     const actions = await getShoppingActions();
 
-    const latestActionByUpc = new Map<string, string>();
+    const latestActionByUpc = new Map<
+      string,
+      { action: string; date: string; note: string }
+    >();
+
     for (const a of actions) {
       const d = String(a.date ?? "").trim();
-      if (d !== today) continue;
-
       const upc = normUpc(a.upc);
       if (!upc) continue;
 
@@ -1032,15 +1045,50 @@ export async function getShoppingList(opts?: {
         .toLowerCase();
       if (!act) continue;
 
-      latestActionByUpc.set(upc, act);
+      const note = String(a.note ?? "")
+        .trim()
+        .toLowerCase();
+
+      // keep a short time window around current day for suppression logic
+      if (d !== yesterday && d !== today) continue;
+
+      latestActionByUpc.set(upc, { action: act, date: d, note });
     }
 
     const hiddenUpcs = new Set(
       Array.from(latestActionByUpc.entries())
-        .filter(
-          ([, act]) =>
-            act === "purchased" || act === "dismissed" || act === "snoozed",
-        )
+        .filter(([, value]) => {
+          const act = value.action;
+          const d = value.date;
+          const note = value.note;
+
+          if (act === "dismissed") {
+            return d === today;
+          }
+
+          if (act === "purchased") {
+            return d === today || d === yesterday;
+          }
+
+          if (act === "snoozed") {
+            if (note === "snooze:later_today") {
+              return d === today;
+            }
+
+            if (note === "snooze:tomorrow") {
+              return d === today || d === yesterday;
+            }
+
+            if (note === "snooze:two_days") {
+              return d === today || d === yesterday;
+            }
+
+            // fallback for older snooze rows with no structured note
+            return d === today;
+          }
+
+          return false;
+        })
         .map(([upc]) => upc),
     );
 

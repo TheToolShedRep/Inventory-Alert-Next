@@ -152,6 +152,24 @@ export default function ChecklistClient({
   // Optional status message for actions like Snooze / Purchased / direct Undo
   const [shoppingStatus, setShoppingStatus] = useState<string>("");
 
+  const goToSnooze = (row: ShoppingRow) => {
+    const upc = String(row.upc || "").trim();
+    if (!upc) return;
+
+    const productName = String(row.product_name || "").trim();
+
+    const params = new URLSearchParams({
+      upc,
+      return: "/checklist",
+    });
+
+    if (productName) {
+      params.set("product_name", productName);
+    }
+
+    router.push(`/snooze?${params.toString()}`);
+  };
+
   const goToPurchase = (row: ShoppingRow) => {
     const upc = String(row.upc || "").trim();
     if (!upc) return;
@@ -512,7 +530,7 @@ export default function ChecklistClient({
                     </button>
 
                     <button
-                      onClick={() => snooze(r)}
+                      onClick={() => goToSnooze(r)}
                       disabled={isBusy}
                       style={{
                         padding: "8px 10px",
