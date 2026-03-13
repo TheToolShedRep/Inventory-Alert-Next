@@ -32,6 +32,8 @@ export default function PurchaseClient() {
         body: JSON.stringify({
           upc,
           product_name: productName,
+          vendor,
+          location,
           action: "purchased",
           quantity,
           note,

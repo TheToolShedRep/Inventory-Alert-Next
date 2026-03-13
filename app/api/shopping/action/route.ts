@@ -67,6 +67,8 @@ export async function POST(req: Request) {
     .toLowerCase();
   const note = norm(body?.note);
   const product_name = norm(body?.product_name);
+  const vendor = norm(body?.vendor);
+  const location = norm(body?.location);
   const date = getBusinessDateNY();
 
   // 🔒 Validate date format (YYYY-MM-DD only)
@@ -141,14 +143,6 @@ export async function POST(req: Request) {
 
   clearShoppingActionsCache();
 
-  // If purchased: ensure Catalog item exists using ingredient_upc
-  // if (action === "purchased") {
-  //   await ensureCatalogItem({
-  //     upc: ingredient_upc,
-  //     product_name: product_name || ingredient_upc,
-  //   });
-  // }
-
   // If purchased: ensure Catalog item exists and write to Purchases ledger
   if (action === "purchased") {
     await ensureCatalogItem({
@@ -161,6 +155,8 @@ export async function POST(req: Request) {
       upc: ingredient_upc,
       product_name: product_name || ingredient_upc,
       qty_purchased: body?.quantity ?? "",
+      store_vendor: vendor,
+      assigned_location: location,
       notes: note,
       base_units_added: body?.quantity ?? "",
     });

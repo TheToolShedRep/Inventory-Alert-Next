@@ -949,15 +949,6 @@ export async function getShoppingList(opts?: {
     }),
   ]);
 
-  // const catalogCandidates = [
-  //   "Catalog",
-  //   "CATALOG",
-  //   "Product_Catalog",
-  //   "Products",
-  //   "Inventory_Catalog",
-  //   "Items",
-  // ];
-
   const catalogRaw = await readTabObjectsNormalized("Catalog");
 
   const catalogByUpc = new Map<string, any>();
@@ -967,14 +958,6 @@ export async function getShoppingList(opts?: {
     if (!upc) continue;
     if (!catalogByUpc.has(upc)) catalogByUpc.set(upc, r);
   }
-
-  // const catalogByUpc = new Map<string, any>();
-  // for (const r of catalogRes.rows) {
-  //   const upcVal = pick(r, ["upc", "sku", "plu", "item_code", "code", "id"]);
-  //   const upc = normUpc(upcVal);
-  //   if (!upc) continue;
-  //   if (!catalogByUpc.has(upc)) catalogByUpc.set(upc, r);
-  // }
 
   function enrichFromCatalog(row: ShoppingListRow): ShoppingListRow {
     const upc = normUpc(row.upc);
@@ -1033,7 +1016,7 @@ export async function getShoppingList(opts?: {
   let filtered = Array.from(byUpc.values());
 
   if (!includeHidden) {
-    const today = getBusinessDateNY();
+    const today = getBusinessDateNY(new Date(Date.now() - 24 * 60 * 60 * 1000));
     const actions = await getShoppingActions();
 
     const latestActionByUpc = new Map<string, string>();
