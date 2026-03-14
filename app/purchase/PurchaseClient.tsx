@@ -14,6 +14,7 @@ export default function PurchaseClient() {
   const location = searchParams.get("location") || "";
   const returnUrl = searchParams.get("return") || "/checklist";
 
+  const [mode, setMode] = useState<"add" | "set">("add");
   const [quantity, setQuantity] = useState(recommendedQty);
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);
@@ -35,6 +36,7 @@ export default function PurchaseClient() {
           vendor,
           location,
           action: "purchased",
+          mode,
           quantity,
           note,
         }),
@@ -71,10 +73,14 @@ export default function PurchaseClient() {
           background: "#fff",
         }}
       >
-        <h2 style={{ margin: 0, marginBottom: 12 }}>Restock Item</h2>
+        <h2 style={{ margin: 0, marginBottom: 12 }}>
+          {mode === "set" ? "Set Current Inventory" : "Restock Item"}
+        </h2>
 
         <p style={{ marginTop: 0, opacity: 0.75 }}>
-          Confirm that this item was purchased or restocked.
+          {mode === "set"
+            ? "Enter the actual current inventory count for this item."
+            : "Confirm that this item was purchased or restocked."}
         </p>
 
         <div>
@@ -123,6 +129,36 @@ export default function PurchaseClient() {
           </div>
 
           <div>
+            <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 8 }}>
+              Inventory Update Mode
+            </div>
+
+            <div style={{ display: "grid", gap: 8 }}>
+              <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input
+                  type="radio"
+                  name="purchase_mode"
+                  value="add"
+                  checked={mode === "add"}
+                  onChange={() => setMode("add")}
+                />
+                Add purchased quantity
+              </label>
+
+              <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input
+                  type="radio"
+                  name="purchase_mode"
+                  value="set"
+                  checked={mode === "set"}
+                  onChange={() => setMode("set")}
+                />
+                Set current inventory
+              </label>
+            </div>
+          </div>
+
+          <div>
             <label
               htmlFor="quantity"
               style={{
@@ -132,7 +168,7 @@ export default function PurchaseClient() {
                 marginBottom: 4,
               }}
             >
-              Quantity Added
+              {mode === "add" ? "Quantity Added" : "Set Current Inventory To"}
             </label>
             <input
               id="quantity"
@@ -265,7 +301,11 @@ export default function PurchaseClient() {
               fontWeight: 800,
             }}
           >
-            {loading ? "Processing..." : "Confirm Restock"}
+            {loading
+              ? "Processing..."
+              : mode === "set"
+                ? "Save Inventory Count"
+                : "Confirm Restock"}
           </button>
 
           <button

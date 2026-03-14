@@ -2,12 +2,14 @@
 import { NextResponse } from "next/server";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import {
+  appendInventoryAdjustment, // ✅ ADDED
   appendPurchase,
   appendShoppingAction,
   clearShoppingActionsCache,
   ensureCatalogItem,
   getBusinessDateNY,
 } from "@/lib/sheets-core";
+import { readTabAsObjects } from "@/lib/sheets/read"; // ✅ ADDED
 import { resolveToIngredientUpc } from "@/lib/barcodes/resolve";
 
 export const runtime = "nodejs";
@@ -22,13 +24,21 @@ function norm(v: any) {
   return String(v ?? "").trim();
 }
 
+function toNumber(v: any) {
+  const s = norm(v);
+  if (!s) return 0;
+  const cleaned = s.replace(/[^0-9.-]/g, "");
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : 0;
+}
+
 const ALLOWED_ACTIONS = new Set(["purchased", "dismissed", "snoozed", "undo"]);
 
 export async function GET() {
   return NextResponse.json({
     ok: true,
     message:
-      "POST JSON: { upc, action: 'purchased'|'dismissed'|'snoozed'|'undo', note?, product_name? }",
+      "POST JSON: { upc, action: 'purchased'|'dismissed'|'snoozed'|'undo', note?, product_name?, mode?, quantity? }",
   });
 }
 
@@ -65,12 +75,11 @@ export async function POST(req: Request) {
   const action = String(body?.action ?? "")
     .trim()
     .toLowerCase();
-  // const note = norm(body?.note);
+
   let note = norm(body?.note);
 
-  // capture snooze duration if provided
+  // ✅ Existing snooze note capture
   const snoozeChoice = norm(body?.snooze_choice);
-
   if (action === "snoozed" && snoozeChoice) {
     note = `snooze:${snoozeChoice}`;
   }
@@ -78,6 +87,12 @@ export async function POST(req: Request) {
   const product_name = norm(body?.product_name);
   const vendor = norm(body?.vendor);
   const location = norm(body?.location);
+
+  // ✅ ADDED: purchase mode + quantity
+  const mode = norm(body?.mode).toLowerCase() || "add"; // add | set
+  const quantityRaw = norm(body?.quantity);
+  const quantity = toNumber(quantityRaw);
+
   const date = getBusinessDateNY();
 
   // 🔒 Validate date format (YYYY-MM-DD only)
@@ -103,6 +118,23 @@ export async function POST(req: Request) {
       },
       { status: 400 },
     );
+  }
+
+  // ✅ Validate purchase mode only when purchased
+  if (action === "purchased") {
+    if (mode !== "add" && mode !== "set") {
+      return NextResponse.json(
+        { ok: false, error: "mode must be 'add' or 'set'" },
+        { status: 400 },
+      );
+    }
+
+    if (!quantityRaw || !Number.isFinite(quantity)) {
+      return NextResponse.json(
+        { ok: false, error: "quantity is required for purchased actions" },
+        { status: 400 },
+      );
+    }
   }
 
   // ✅ Resolve to ingredient_upc (barcode -> ingredient)
@@ -136,6 +168,8 @@ export async function POST(req: Request) {
     date,
     upc: ingredient_upc,
     action,
+    mode, // ✅ ADDED
+    quantity, // ✅ ADDED
     actor,
     note,
     resolve_source: resolved.found ? resolved.source : "direct",
@@ -152,23 +186,110 @@ export async function POST(req: Request) {
 
   clearShoppingActionsCache();
 
-  // If purchased: ensure Catalog item exists and write to Purchases ledger
+  // ✅ Purchased flow now supports two behaviors:
+  // - mode === "add" → appendPurchase
+  // - mode === "set" → appendInventoryAdjustment(delta)
   if (action === "purchased") {
     await ensureCatalogItem({
       upc: ingredient_upc,
       product_name: product_name || ingredient_upc,
     });
 
-    await appendPurchase({
-      entered_by: actor,
-      upc: ingredient_upc,
-      product_name: product_name || ingredient_upc,
-      qty_purchased: body?.quantity ?? "",
-      store_vendor: vendor,
-      assigned_location: location,
-      notes: note,
-      base_units_added: body?.quantity ?? "",
-    });
+    if (mode === "add") {
+      await appendPurchase({
+        entered_by: actor,
+        upc: ingredient_upc,
+        product_name: product_name || ingredient_upc,
+        qty_purchased: quantity,
+        store_vendor: vendor,
+        assigned_location: location,
+        notes: note,
+        base_units_added: quantity,
+      });
+
+      return NextResponse.json({
+        ok: true,
+        ingredient_upc,
+        mode,
+        quantity,
+        resolved: resolved.found
+          ? { source: resolved.source }
+          : { source: "direct" },
+      });
+    }
+
+    if (mode === "set") {
+      // ✅ ADDED: compute current on-hand from ledgers
+      const [purchases, usage, adjustments] = await Promise.all([
+        readTabAsObjects("Purchases"),
+        readTabAsObjects("Inventory_Usage"),
+        readTabAsObjects("Inventory_Adjustments").catch(() => ({
+          rows: [],
+          ok: true,
+        })),
+      ]);
+
+      let purchasedBaseUnits = 0;
+      for (const r of purchases.rows) {
+        const rowUpc = norm(r["upc"]);
+        if (rowUpc !== ingredient_upc) continue;
+
+        const baseAdded = toNumber(r["base_units_added"]);
+        const qtyPurchased = toNumber(r["qty_purchased"]);
+
+        if (baseAdded > 0) {
+          purchasedBaseUnits += baseAdded;
+        } else if (qtyPurchased > 0) {
+          purchasedBaseUnits += qtyPurchased;
+        }
+      }
+
+      let usedBaseUnits = 0;
+      for (const r of usage.rows) {
+        const rowUpc = norm(r["ingredient_upc"]);
+        if (rowUpc !== ingredient_upc) continue;
+
+        usedBaseUnits += toNumber(r["theoretical_used_qty"]);
+      }
+
+      let adjustmentDelta = 0;
+      for (const r of (adjustments as any).rows || []) {
+        const rowUpc = norm(r["upc"]);
+        if (rowUpc !== ingredient_upc) continue;
+
+        adjustmentDelta += toNumber(r["base_units_delta"]);
+      }
+
+      const currentOnHand =
+        purchasedBaseUnits - usedBaseUnits + adjustmentDelta;
+
+      // User-entered quantity in "set" mode means desired current inventory
+      const delta = quantity - currentOnHand;
+
+      // Only write an adjustment if something actually changed
+      if (delta !== 0) {
+        await appendInventoryAdjustment({
+          date,
+          upc: ingredient_upc,
+          adjustment_type: "manual_set",
+          base_units_delta: delta,
+          reason: note || "inventory_count",
+          actor,
+        });
+      }
+
+      return NextResponse.json({
+        ok: true,
+        ingredient_upc,
+        mode,
+        set_to_quantity: quantity,
+        current_on_hand_before: currentOnHand,
+        adjustment_delta: delta,
+        resolved: resolved.found
+          ? { source: resolved.source }
+          : { source: "direct" },
+      });
+    }
   }
 
   return NextResponse.json({
