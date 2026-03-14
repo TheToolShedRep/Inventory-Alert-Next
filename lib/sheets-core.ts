@@ -1021,12 +1021,6 @@ export async function getShoppingList(opts?: {
     const yesterday = getBusinessDateNY(
       new Date(now.getTime() - 24 * 60 * 60 * 1000),
     );
-    const tomorrow = getBusinessDateNY(
-      new Date(now.getTime() + 24 * 60 * 60 * 1000),
-    );
-    const twoDaysFromNow = getBusinessDateNY(
-      new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000),
-    );
 
     const actions = await getShoppingActions();
 
@@ -1049,7 +1043,7 @@ export async function getShoppingList(opts?: {
         .trim()
         .toLowerCase();
 
-      // keep a short time window around current day for suppression logic
+      // Only keep a short recent window for action-based suppression
       if (d !== yesterday && d !== today) continue;
 
       latestActionByUpc.set(upc, { action: act, date: d, note });
@@ -1083,7 +1077,7 @@ export async function getShoppingList(opts?: {
               return d === today || d === yesterday;
             }
 
-            // fallback for older snooze rows with no structured note
+            // fallback for older snooze rows without structured note
             return d === today;
           }
 
