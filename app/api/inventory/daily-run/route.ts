@@ -55,13 +55,39 @@ export async function GET(req: Request) {
   const date = url.searchParams.get("date") || ymd();
   const base = getInternalBase(url);
 
+  // ✅ allow testing without sending vendor emails
+  const skipEmail = url.searchParams.get("skipEmail") === "1";
+
   const internalKey = process.env.INTERNAL_API_KEY || "";
   const headers: Record<string, string> = internalKey
     ? { "x-api-key": internalKey }
     : {};
 
   try {
-    // 1) Inventory usage ledger refresh
+    // 1) Refresh Sales from Toast for this date
+    const salesSyncUrl = `${base}/api/toast/sales-sync?date=${date}`;
+    const { res: salesRes, json: salesJson } = await fetchJson(
+      salesSyncUrl,
+      headers,
+    );
+
+    if (!salesRes.ok || !salesJson?.ok) {
+      return NextResponse.json(
+        {
+          ok: false,
+          scope: "daily-run",
+          step: "sales-sync",
+          date,
+          base,
+          error: salesJson?.error || "sales-sync failed",
+          sales_sync: salesJson,
+          ms: Date.now() - started,
+        },
+        { status: 500 },
+      );
+    }
+
+    // 2) Inventory usage ledger refresh
     const mathUrl = `${base}/api/inventory-math/run?date=${date}&mode=replace`;
     const { res: mathRes, json: mathJson } = await fetchJson(mathUrl, headers);
 
@@ -81,7 +107,7 @@ export async function GET(req: Request) {
       );
     }
 
-    // 2) Reorder check
+    // 3) Reorder check
     const checkUrl = `${base}/api/inventory/reorder-check`;
     const { res: checkRes, json: checkJson } = await fetchJson(
       checkUrl,
@@ -103,10 +129,13 @@ export async function GET(req: Request) {
       );
     }
 
-    // 3) Email only if flagged
+    // 4) Email only if flagged
     let emailJson: any = { skipped: true, reason: "no_items_flagged" };
 
-    if ((checkJson.items_flagged || 0) > 0) {
+    // ✅ skip email when testing
+    if (skipEmail) {
+      emailJson = { skipped: true, reason: "skipEmail=1" };
+    } else if ((checkJson.items_flagged || 0) > 0) {
       const emailUrl = `${base}/api/inventory/reorder-email`;
       const { res: emailRes, json } = await fetchJson(emailUrl, headers);
       emailJson = json;
@@ -127,12 +156,40 @@ export async function GET(req: Request) {
       }
     }
 
+    // if ((checkJson.items_flagged || 0) > 0) {
+    //   const emailUrl = `${base}/api/inventory/reorder-email`;
+    //   const { res: emailRes, json } = await fetchJson(emailUrl, headers);
+    //   emailJson = json;
+
+    //   if (!emailRes.ok || !emailJson?.ok) {
+    //     return NextResponse.json(
+    //       {
+    //         ok: false,
+    //         scope: "daily-run",
+    //         step: "reorder-email",
+    //         date,
+    //         base,
+    //         reorder_email: emailJson,
+    //         ms: Date.now() - started,
+    //       },
+    //       { status: 500 },
+    //     );
+    //   }
+    // }
+
     return NextResponse.json({
       ok: true,
       scope: "daily-run",
       date,
       base,
       ms: Date.now() - started,
+
+      // ✅ ADDED: include sales sync result in success response
+      sales_sync: {
+        date: salesJson.date,
+        rows_written: salesJson.rows_written,
+      },
+
       inventory_math: {
         rows_written: mathJson.rows_written,
         missing_recipes_count: (mathJson.missing_recipes || []).length,

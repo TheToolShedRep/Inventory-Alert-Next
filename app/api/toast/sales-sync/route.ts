@@ -10,7 +10,7 @@
 // Output written to Sales sheet via appendSalesRows()
 
 import { NextResponse } from "next/server";
-import { appendSalesRows } from "@/lib/sales";
+import { appendSalesRows, clearSalesRowsForDate } from "@/lib/sales";
 
 import {
   cleanName,
@@ -201,7 +201,14 @@ export async function GET(req: Request) {
     }))
     .filter((r) => r.qty_sold > 0);
 
+  // Clear existing Toast sales rows for this date so reruns do not duplicate data
+  await clearSalesRowsForDate({
+    date: salesDate,
+    source: "toast",
+  });
+
   // 4) Write to Sales sheet
+  // Clear existing Toast sales rows for this date so reruns do not duplicate data
   await appendSalesRows(rows);
 
   return NextResponse.json({
