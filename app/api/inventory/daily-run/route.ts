@@ -156,27 +156,6 @@ export async function GET(req: Request) {
       }
     }
 
-    // if ((checkJson.items_flagged || 0) > 0) {
-    //   const emailUrl = `${base}/api/inventory/reorder-email`;
-    //   const { res: emailRes, json } = await fetchJson(emailUrl, headers);
-    //   emailJson = json;
-
-    //   if (!emailRes.ok || !emailJson?.ok) {
-    //     return NextResponse.json(
-    //       {
-    //         ok: false,
-    //         scope: "daily-run",
-    //         step: "reorder-email",
-    //         date,
-    //         base,
-    //         reorder_email: emailJson,
-    //         ms: Date.now() - started,
-    //       },
-    //       { status: 500 },
-    //     );
-    //   }
-    // }
-
     return NextResponse.json({
       ok: true,
       scope: "daily-run",
