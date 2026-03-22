@@ -2,9 +2,14 @@ name: Inventory Daily Run
 
 on:
   schedule:
-    # 6:00 AM America/New_York = 11:00 UTC during standard time, 10:00 UTC during daylight time.
-    # GitHub cron uses UTC only. We’ll keep it at 11:00 UTC as a stable baseline.
-    - cron: "30 6 * * *"
+    # CHANGE:
+    # GitHub Actions cron uses UTC only.
+    # For March 22, 2026, New York is on EDT (UTC-4),
+    # so 11:00 PM America/New_York = 03:00 UTC.
+    #
+    # This keeps the nightly run aligned with 11 PM local time for now.
+    # We can adjust again when DST changes.
+    - cron: "0 3 * * *"
   workflow_dispatch: {}
 
 jobs:
@@ -36,7 +41,6 @@ jobs:
           echo "Calling URL: $URL"
           echo "----------------------"
 
-          # Print status code + response body (without failing the step yet)
           CODE=$(curl -sS -o resp.json -w "%{http_code}" \
           -H "x-api-key: $INTERNAL_API_KEY" \
           -H "accept: application/json" \
@@ -47,7 +51,6 @@ jobs:
           cat resp.json
           echo ""
 
-          # Now fail the job if not 200
           if [ "$CODE" != "200" ]; then
             echo "❌ Non-200 response, failing job"
             exit 1
