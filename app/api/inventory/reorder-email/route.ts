@@ -376,9 +376,15 @@ export async function GET(req: Request) {
     //   <p>— Inventory Alert System</p>
     // `;
 
-    const checklistUrl = process.env.APP_BASE_URL?.trim()
-      ? `${process.env.APP_BASE_URL}/checklist`
-      : "https://inventory-alert-next.onrender.com/checklist";
+    // const checklistUrl = process.env.APP_BASE_URL?.trim()
+    //   ? `${process.env.APP_BASE_URL}/checklist`
+    //   : "https://inventory.alert.cbq.thetoolshed.app";
+
+    const baseUrl =
+      process.env.NEXT_PUBLIC_BASE_URL ||
+      "https://inventory.alert.cbq.thetoolshed.app";
+
+    const checklistUrl = `${baseUrl.replace(/\/$/, "")}/checklist`;
 
     const html = `
   <h2>${testMode ? "Shopping List (TEST MODE)" : "Shopping List"}</h2>
