@@ -1,4 +1,3 @@
-// middleware.ts
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
 const isPublicRoute = createRouteMatcher([
@@ -24,7 +23,7 @@ export default clerkMiddleware(async (auth, req) => {
 
     if (!a.userId) {
       return a.redirectToSignIn({
-        returnBackUrl: "/checklist",
+        returnBackUrl: req.url,
       });
     }
   }

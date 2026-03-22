@@ -342,17 +342,49 @@ export async function GET(req: Request) {
     // `;
 
     // CHANGE: added checklist button + improved structure
+    //     const checklistUrl = process.env.APP_BASE_URL?.trim()
+    //       ? `${process.env.APP_BASE_URL}/checklist`
+    //       : "https://inventory-alert-next.onrender.com/checklist";
+
+    //     const html = `
+    //   <h2>${testMode ? "Shopping List (TEST MODE)" : "Shopping List"}</h2>
+
+    //   <p><strong>Business date (NY):</strong> ${businessDate}</p>
+    //   <p><strong>Generated (NY):</strong> ${formatNY(new Date())}</p>
+
+    //   <div style="margin: 16px 0;">
+    //     <a href="${checklistUrl}"
+    //        style="
+    //          display:inline-block;
+    //          padding:12px 20px;
+    //          background:#111827;
+    //          color:#ffffff;
+    //          text-decoration:none;
+    //          border-radius:8px;
+    //          font-weight:600;
+    //        ">
+    //        Open Shopping List
+    //     </a>
+    //   </div>
+
+    //   <ul>${rowsHtml}</ul>
+
+    //   <p style="opacity:0.7;">
+    //     Request: ${requestId} • Hash: ${itemsHash}
+    //   </p>
+
+    //   <p>— Inventory Alert System</p>
+    // `;
+
     const checklistUrl = process.env.APP_BASE_URL?.trim()
       ? `${process.env.APP_BASE_URL}/checklist`
       : "https://inventory-alert-next.onrender.com/checklist";
 
     const html = `
   <h2>${testMode ? "Shopping List (TEST MODE)" : "Shopping List"}</h2>
-
   <p><strong>Business date (NY):</strong> ${businessDate}</p>
   <p><strong>Generated (NY):</strong> ${formatNY(new Date())}</p>
 
-  //  CHANGE: Primary action button 
   <div style="margin: 16px 0;">
     <a href="${checklistUrl}"
        style="
@@ -364,16 +396,12 @@ export async function GET(req: Request) {
          border-radius:8px;
          font-weight:600;
        ">
-       Open Shopping List
+      Open Checklist
     </a>
   </div>
 
   <ul>${rowsHtml}</ul>
-
-  <p style="opacity:0.7;">
-    Request: ${requestId} • Hash: ${itemsHash}
-  </p>
-
+  <p style="opacity:0.7;">Request: ${requestId} • Hash: ${itemsHash}</p>
   <p>— Inventory Alert System</p>
 `;
 
