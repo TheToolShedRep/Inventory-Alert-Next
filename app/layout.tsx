@@ -51,7 +51,7 @@ export default function RootLayout({
           className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[#f6f7f9] text-neutral-900`}
         >
           <ThemeEnforcer />
-          <OneSignalInit />
+          {/* <OneSignalInit /> */}
           {children}
         </body>
       </html>
