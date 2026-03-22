@@ -344,7 +344,7 @@ export async function GET(req: Request) {
     // CHANGE: added checklist button + improved structure
     const checklistUrl = process.env.APP_BASE_URL?.trim()
       ? `${process.env.APP_BASE_URL}/checklist`
-      : "https://www.inventory.alert.cbq.thetoolshed.app/checklist";
+      : "https://inventory-alert-next.onrender.com/checklist";
 
     const html = `
   <h2>${testMode ? "Shopping List (TEST MODE)" : "Shopping List"}</h2>
