@@ -2,9 +2,6 @@
 import type { Metadata } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Geist, Geist_Mono } from "next/font/google";
-import OneSignalInit from "./components/OneSignalInit";
-import ThemeEnforcer from "./components/ThemeEnforcer";
-
 import "./globals.css";
 
 const geistSans = Geist({
@@ -20,16 +17,12 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Inventory Alert",
   description: "Cafe inventory alert system",
-
-  // ✅ PWA + iOS support
   manifest: "/manifest.json",
-
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
     title: "Inventory Alert",
   },
-
   icons: {
     apple: "/icons/icon-180.png",
   },
@@ -50,8 +43,6 @@ export default function RootLayout({
         <body
           className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[#f6f7f9] text-neutral-900`}
         >
-          <ThemeEnforcer />
-          {/* <OneSignalInit /> */}
           {children}
         </body>
       </html>
