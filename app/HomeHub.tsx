@@ -54,6 +54,13 @@ export default function HomeHub() {
         enabled: true,
       },
       {
+        key: "inventory",
+        title: "Inventory",
+        subtitle: "View current stock levels + low items",
+        href: "/inventory",
+        enabled: true,
+      },
+      {
         key: "manager-shopping",
         title: "Manager Shopping",
         subtitle: "Reorder list + quantities to buy",
