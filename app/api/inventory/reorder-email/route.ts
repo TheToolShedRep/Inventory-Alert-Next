@@ -344,7 +344,7 @@ export async function GET(req: Request) {
     // CHANGE: added checklist button + improved structure
     const checklistUrl = process.env.APP_BASE_URL?.trim()
       ? `${process.env.APP_BASE_URL}/checklist`
-      : "https://inventory-alert-next.onrender.com/checklist";
+      : "https://www.inventory.alert.cbq.thetoolshed.app/checklist";
 
     const html = `
   <h2>${testMode ? "Shopping List (TEST MODE)" : "Shopping List"}</h2>
@@ -352,7 +352,7 @@ export async function GET(req: Request) {
   <p><strong>Business date (NY):</strong> ${businessDate}</p>
   <p><strong>Generated (NY):</strong> ${formatNY(new Date())}</p>
 
-  <!-- CHANGE: Primary action button -->
+  //  CHANGE: Primary action button 
   <div style="margin: 16px 0;">
     <a href="${checklistUrl}"
        style="
