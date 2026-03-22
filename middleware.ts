@@ -23,7 +23,6 @@ export default clerkMiddleware(async (auth, req) => {
     const a = await auth();
 
     if (!a.userId) {
-      // CHANGE: temporary test to rule middleware URL-building in or out
       return a.redirectToSignIn({
         returnBackUrl: "/checklist",
       });
