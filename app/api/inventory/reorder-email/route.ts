@@ -385,22 +385,15 @@ export async function GET(req: Request) {
   <p><strong>Business date (NY):</strong> ${businessDate}</p>
   <p><strong>Generated (NY):</strong> ${formatNY(new Date())}</p>
 
-  <div style="margin: 16px 0;">
-    <a href="${checklistUrl}"
-       style="
-         display:inline-block;
-         padding:12px 20px;
-         background:#111827;
-         color:#ffffff;
-         text-decoration:none;
-         border-radius:8px;
-         font-weight:600;
-       ">
+  <!-- ✅ SIMPLE LINK (email-safe) -->
+  <p style="margin:16px 0;">
+    👉 <a href="${checklistUrl}" target="_blank">
       Open Checklist
     </a>
-  </div>
+  </p>
 
   <ul>${rowsHtml}</ul>
+
   <p style="opacity:0.7;">Request: ${requestId} • Hash: ${itemsHash}</p>
   <p>— Inventory Alert System</p>
 `;
