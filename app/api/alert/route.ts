@@ -9,7 +9,6 @@ export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   console.log("🔥 LOCAL ALERT HIT (TOP)");
-  // console.log("✅ /api/alert HIT", new Date().toISOString());
 
   try {
     const raw = await req.text();
@@ -35,7 +34,6 @@ export async function POST(req: Request) {
     const qty = String(body.qty || "").trim();
     const note = String(body.note || "").trim();
 
-    // optional
     const source = String(body.source || "").trim();
 
     console.log("✅ /api/alert PARSED:", { item, location, qty, note, source });
@@ -56,6 +54,15 @@ export async function POST(req: Request) {
 
     const alertId = `${Date.now()}_${item}_${location}`.toLowerCase();
 
+    // =========================================================
+    // 🔥 NEW: Build checklist URL (used for email + push redirect)
+    // =========================================================
+    const baseUrl =
+      process.env.NEXT_PUBLIC_BASE_URL ||
+      "https://inventory-alert-next.onrender.com";
+
+    const checklistUrl = `${baseUrl.replace(/\/$/, "")}/checklist`;
+
     // 1) Sheets (authoritative)
     await logAlertToSheet({
       item,
@@ -65,7 +72,7 @@ export async function POST(req: Request) {
       ip,
       userAgent,
       alertId,
-      source, // optional; sheets.ts will append it only if header exists
+      source,
     });
 
     // 2) Email (non-blocking)
@@ -96,6 +103,24 @@ export async function POST(req: Request) {
               <p><b>Location:</b> ${location}</p>
               <p><b>Status:</b> ${qty.toUpperCase()}</p>
               ${note ? `<p><b>Note:</b> ${note}</p>` : ""}
+
+              <!-- ===================================================== -->
+              <!-- 🔥 NEW: Checklist button (EMAIL → /checklist redirect) -->
+              <!-- ===================================================== -->
+              <p style="margin-top:16px;">
+                <a href="${checklistUrl}"
+                   style="
+                     display:inline-block;
+                     padding:10px 14px;
+                     background:#111827;
+                     color:#fff;
+                     border-radius:8px;
+                     text-decoration:none;
+                     font-weight:600;
+                   ">
+                   Open Checklist
+                </a>
+              </p>
             </div>
           `,
         });
@@ -111,6 +136,11 @@ export async function POST(req: Request) {
         message: `${location} reported ${qty.toUpperCase()}${
           note ? ` — ${note}` : ""
         }`,
+
+        // =====================================================
+        // 🔥 NEW: Push notification opens /checklist
+        // =====================================================
+        url: checklistUrl,
       });
     } catch (e: any) {
       console.warn("⚠️ Push failed:", e?.message || e);
