@@ -59,7 +59,7 @@ export async function POST(req: Request) {
     // =========================================================
     const baseUrl =
       process.env.NEXT_PUBLIC_BASE_URL ||
-      "https://inventory-alert-next.onrender.com";
+      "https://inventory.alert.cbq.thetoolshed.app";
 
     const checklistUrl = `${baseUrl.replace(/\/$/, "")}/checklist`;
 
