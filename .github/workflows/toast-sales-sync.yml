@@ -1,0 +1,23 @@
+name: Toast Sales Sync
+
+on:
+  schedule:
+    # Every 10 minutes
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  sync-toast-sales:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set NY business date
+        id: date
+        run: |
+          echo "today=$(TZ=America/New_York date +%F)" >> $GITHUB_OUTPUT
+
+      - name: Call Toast sales sync
+        run: |
+          curl --fail-with-body \
+            -H "x-api-key: ${{ secrets.INTERNAL_API_KEY }}" \
+            "https://inventory-alert-next.onrender.com/api/toast/sales-sync?date=${{ steps.date.outputs.today }}"
