@@ -118,6 +118,16 @@ export function buildVirtualMenuKey(
     // If missing, bucket loudly so it doesn't silently skew inventory.
     const key = protein ? `${base} - ${protein}` : `${base} - unknown protein`;
 
+    // inside buildVirtualMenuKey
+
+    if (base === "grits bowl loaded") {
+      const key = protein
+        ? `fully loaded grits - ${protein}`
+        : "fully loaded grits";
+
+      return key;
+    }
+
     // Only The Outkast tracks cheddar as a recipe-level variant for now.
     if (base === "the outkast" && cheese === "cheddar") {
       return `${key} - cheddar`;

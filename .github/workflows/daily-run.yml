@@ -25,16 +25,16 @@ jobs:
 
           echo "---- DEBUG (safe) ----"
           if [ -z "${INTERNAL_API_KEY:-}" ]; then
-            echo "❌ INTERNAL_API_KEY is missing/empty in this job"
+            echo " INTERNAL_API_KEY is missing/empty in this job"
           else
-            echo "✅ INTERNAL_API_KEY present (length: ${#INTERNAL_API_KEY})"
+            echo " INTERNAL_API_KEY present (length: ${#INTERNAL_API_KEY})"
           fi
 
           if [ -z "${DAILY_RUN_URL:-}" ]; then
-            echo "⚠️ DAILY_RUN_URL missing; using default"
+            echo " DAILY_RUN_URL missing; using default"
             URL="https://inventory-alert-next.onrender.com/api/inventory/daily-run"
           else
-            echo "✅ DAILY_RUN_URL present"
+            echo " DAILY_RUN_URL present"
             URL="$DAILY_RUN_URL"
           fi
 
@@ -52,8 +52,8 @@ jobs:
           echo ""
 
           if [ "$CODE" != "200" ]; then
-            echo "❌ Non-200 response, failing job"
+            echo " Non-200 response, failing job"
             exit 1
           fi
 
-          echo "✅ Daily run triggered successfully"
+          echo " Daily run triggered successfully"

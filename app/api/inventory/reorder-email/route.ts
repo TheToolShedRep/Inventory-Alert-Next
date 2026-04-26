@@ -391,9 +391,9 @@ export async function GET(req: Request) {
   <p><strong>Business date (NY):</strong> ${businessDate}</p>
   <p><strong>Generated (NY):</strong> ${formatNY(new Date())}</p>
 
-  <!-- ✅ SIMPLE LINK (email-safe) -->
+  <!--  SIMPLE LINK (email-safe) -->
   <p style="margin:16px 0;">
-    👉 <a href="${checklistUrl}" target="_blank">
+     <a href="${checklistUrl}" target="_blank">
       Open Checklist
     </a>
   </p>

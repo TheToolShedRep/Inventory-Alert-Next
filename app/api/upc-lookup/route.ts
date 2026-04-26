@@ -39,7 +39,7 @@ const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
  */
 export async function GET(req: Request) {
   try {
-    // ✅ Auth gate
+    //  Auth gate
     if (!allowInternalKey(req)) {
       const { userId } = await auth();
       if (!userId) {
@@ -50,7 +50,7 @@ export async function GET(req: Request) {
       }
     }
 
-    // ✅ Feature toggle (lets staging/dev work without UPC token)
+    //  Feature toggle (lets staging/dev work without UPC token)
     if (!isUpcLookupEnabled()) {
       return NextResponse.json(
         {
@@ -87,7 +87,7 @@ export async function GET(req: Request) {
       );
     }
 
-    // ✅ 1) Catalog-first shortcut (free)
+    //  1) Catalog-first shortcut (free)
     // If already known in Catalog, return immediately.
     try {
       const cachedCatalog = await getCatalogDefaultsByUpc(barcode);
@@ -110,7 +110,7 @@ export async function GET(req: Request) {
       // If Catalog lookup fails, don't block paid lookup.
     }
 
-    // ✅ 2) Memory cache (free)
+    //  2) Memory cache (free)
     const hit = memCache.get(barcode);
     if (hit && hit.exp > Date.now()) {
       return NextResponse.json({ ...hit.data, source: "memory_cache" });
@@ -216,7 +216,7 @@ export async function GET(req: Request) {
     const ean =
       (product?.ean || product?.barcode || "").toString().trim() || undefined;
 
-    // ✅ Only include raw in dev OR when explicitly enabled
+    //  Only include raw in dev OR when explicitly enabled
     const includeRaw =
       process.env.NODE_ENV !== "production" ||
       String(process.env.DEBUG_UPC_LOOKUP_RAW || "").toLowerCase() === "true";
@@ -236,7 +236,7 @@ export async function GET(req: Request) {
       ...(includeRaw ? { raw: data } : {}),
     };
 
-    // ✅ cache successful lookups
+    //  cache successful lookups
     memCache.set(barcode, {
       exp: Date.now() + CACHE_TTL_MS,
       data: responseBody,
