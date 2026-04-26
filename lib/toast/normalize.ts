@@ -106,7 +106,12 @@ export function buildVirtualMenuKey(
   const rawBase = cleanName(baseItemDisplayName);
   const base = normalizeSimpleAliases(rawBase);
 
-  // Items whose recipe materially changes based on protein
+  if (base === "grits bowl loaded") {
+    return protein
+      ? `fully loaded grits - ${protein}`
+      : "fully loaded grits - unknown protein";
+  }
+
   const PROTEIN_VARIANT_ITEMS = new Set([
     "the outkast",
     "love n this club",
