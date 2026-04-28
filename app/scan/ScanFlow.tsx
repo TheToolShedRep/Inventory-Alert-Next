@@ -142,7 +142,7 @@ export default function ScanFlow() {
         // Allow manual entry, but keep the flow moving.
         setError(
           (data as any)?.error ||
-            "UPC not found. Enter a product name and (optional) brand."
+            "UPC not found. Enter a product name and (optional) brand.",
         );
 
         setNeedsManualEntry(true);
@@ -158,7 +158,7 @@ export default function ScanFlow() {
           `/api/catalog-lookup?upc=${encodeURIComponent(upc)}`,
           {
             cache: "no-store",
-          }
+          },
         );
         if (d.ok) {
           const cd = (await d.json()) as
@@ -174,7 +174,7 @@ export default function ScanFlow() {
     } catch (e: any) {
       // If UPC lookup blows up unexpectedly, still allow manual entry so scanning isn't blocked.
       setError(
-        e?.message || "Scan lookup failed. Enter a product name manually."
+        e?.message || "Scan lookup failed. Enter a product name manually.",
       );
       setNeedsManualEntry(true);
       setLookup(makeManualLookup(upc));
@@ -242,7 +242,7 @@ export default function ScanFlow() {
         setError(e?.message || "Save failed");
       }
     },
-    [lookup]
+    [lookup],
   );
 
   // The PurchaseForm default values:
@@ -256,7 +256,9 @@ export default function ScanFlow() {
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6">
       <div className="mb-4">
-        <h1 className="text-xl font-semibold">Shopping Scan</h1>
+        <h1 className="text-xl font-semibold text-neutral-600">
+          Shopping Scan
+        </h1>
         <p className="text-sm text-neutral-600">
           Scan → confirm → enter price/location → save
         </p>

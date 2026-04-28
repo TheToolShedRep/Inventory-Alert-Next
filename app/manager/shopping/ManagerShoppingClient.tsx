@@ -273,7 +273,16 @@ export default function ManagerShoppingClient() {
   }, [rows]);
 
   return (
-    <div style={{ padding: 16, maxWidth: 900 }}>
+    <div
+      style={{
+        width: "100%",
+        maxWidth: 1100,
+        margin: "0 auto",
+        padding: 16,
+        boxSizing: "border-box",
+        overflowX: "hidden",
+      }}
+    >
       <h1 style={{ fontSize: 20, fontWeight: 800 }}>Manager Shopping List</h1>
 
       <div
@@ -345,18 +354,22 @@ export default function ManagerShoppingClient() {
             <div
               key={`${upcVal}-${r.timestamp ?? ""}`}
               style={{
+                width: "100%",
+                boxSizing: "border-box",
                 border: "1px solid #ddd",
                 borderRadius: 10,
                 padding: 12,
                 display: "grid",
-                gap: 6,
+                gap: 10,
+                overflow: "hidden",
               }}
             >
               <div
                 style={{
-                  display: "flex",
-                  justifyContent: "space-between",
+                  display: "grid",
+                  gridTemplateColumns: "minmax(0, 1fr) auto",
                   gap: 12,
+                  alignItems: "start",
                 }}
               >
                 <div>

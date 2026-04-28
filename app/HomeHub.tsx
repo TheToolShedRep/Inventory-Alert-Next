@@ -125,19 +125,21 @@ export default function HomeHub() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-md px-4 py-6">
+    <div className="mx-auto w-full max-w-md px-4 py-6 ">
       <div className="mb-4">
-        <h1 className="text-xl font-semibold">Inventory Alerts</h1>
-        <p className="text-sm text-neutral-600">Choose what you’re doing.</p>
+        <h1 className="text-xl font-semibold text-white-600">
+          Inventory Alerts
+        </h1>
+        <p className="text-sm ">Choose what you’re doing.</p>
       </div>
 
       {toast ? (
-        <div className="mb-4 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm">
+        <div className="mb-4 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm ">
           {toast}
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-3">
+      <div className="grid grid-cols-1 gap-3 text-neutral-600">
         {actions.map((a) =>
           a.enabled ? (
             <Link
@@ -145,7 +147,9 @@ export default function HomeHub() {
               href={a.href}
               className="rounded-xl border bg-white p-4 active:scale-[0.99]"
             >
-              <div className="text-base font-semibold">{a.title}</div>
+              <div className="text-base font-semibold text-neutral-600">
+                {a.title}
+              </div>
               <div className="mt-1 text-sm text-neutral-600">{a.subtitle}</div>
             </Link>
           ) : (

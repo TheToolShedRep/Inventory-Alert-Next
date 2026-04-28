@@ -12,17 +12,14 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* MVP: force light mode everywhere */
+html {
+  color-scheme: light;
 }
 
-/* Dark (only when YOU add .dark to <html>) */
 html.dark {
-  --background: #0a0a0a;
-  --foreground: #ededed;
+  --background: #ffffff;
+  --foreground: #171717;
 }
 
 body {
@@ -30,11 +27,3 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
-
-/* globals.css */
-/* @media (prefers-color-scheme: dark) {
-  body {
-    background: #0b0b0b;
-    color: #f5f5f5;
-  }
-} */

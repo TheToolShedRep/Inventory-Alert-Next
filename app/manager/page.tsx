@@ -182,7 +182,14 @@ export default async function ManagerPage({
 
                     <div>{r.preferred_vendor || "—"}</div>
 
-                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "flex-start",
+                        gap: 10,
+                      }}
+                    >
                       <Link
                         href={`/purchase?upc=${encodeURIComponent(upc)}&return=${encodeURIComponent(returnTo)}`}
                         style={{ textDecoration: "underline" }}

@@ -420,14 +420,16 @@ export default function ScanCamera({
       ) : null}
 
       <div className="rounded-xl border p-3">
-        <div className="text-sm font-medium">Manual barcode entry</div>
-        <div className="mt-2 flex gap-2">
+        <div className="text-sm font-medium text-neutral-600">
+          Manual barcode entry
+        </div>
+        <div className="mt-2 flex gap-2 ">
           <input
             value={manual}
             onChange={(e) => setManual(e.target.value)}
             inputMode="numeric"
             placeholder="Enter barcode digits"
-            className="w-full rounded-lg border px-3 py-2 text-sm"
+            className="w-full rounded-lg border px-3 py-2 text-sm text-neutral-600"
           />
           <button
             type="button"
