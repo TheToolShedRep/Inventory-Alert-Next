@@ -18,6 +18,11 @@ jobs:
 
       - name: Call Toast sales sync
         run: |
-          curl --fail-with-body \
-            -H "x-api-key: ${{ secrets.INTERNAL_API_KEY }}" \
-            "https://inventory-alert-next.onrender.com/api/toast/sales-sync?date=${{ steps.date.outputs.today }}"
+        curl -L --fail-with-body \
+        -H "x-api-key: ${{ secrets.INTERNAL_API_KEY }}" \
+        "https://inventory-alert-next.onrender.com/api/toast/sales-sync?date=${{ steps.date.outputs.today }}"
+          # curl --fail-with-body \
+          #   -H "x-api-key: ${{ secrets.INTERNAL_API_KEY }}" \
+          #   "https://inventory-alert-next.onrender.com/api/toast/sales-sync?date=${{ steps.date.outputs.today }}"
+
+
